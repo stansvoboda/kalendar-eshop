@@ -28,6 +28,8 @@ Test card: `4242 4242 4242 4242`, any future date, any CVC.
 
 ## How it works
 
+Podrobně česky, včetně toho, co chybí do skutečného obchodu: [docs/jak-to-funguje.md](docs/jak-to-funguje.md)
+
 - `studio/` — Sanity Studio with the `product` schema (name, slug, price in CZK, image, description).
 - `src/server/shop.ts` — server functions: product query (GROQ) and Stripe Checkout session. Prices are always re-read from Sanity on the server, never trusted from the client.
 - `src/lib/shop.ts` — cart logic + Zod schemas (tested in `shop.test.ts`).
