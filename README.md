@@ -26,6 +26,8 @@ stripe listen --forward-to localhost:3000/api/stripe-webhook
 
 Test card: `4242 4242 4242 4242`, any future date, any CVC.
 
+Způsob doručení: `DELIVERY_PRICE_CZK` (Doručení na adresu, default 99) and `PICKUP_PLACE` (odběrní místo text) are read on the server; see `.env.example`.
+
 ## How it works
 
 Podrobně česky, včetně toho, co chybí do skutečného obchodu: [docs/jak-to-funguje.md](docs/jak-to-funguje.md)

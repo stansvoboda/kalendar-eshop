@@ -1,20 +1,28 @@
 import { createStore } from '@tanstack/react-store'
-import { cartSchema } from './shop'
-import type { CartItem } from './shop'
+import { cartSchema, deliveryMethodSchema } from './shop'
+import type { CartItem, DeliveryMethod } from './shop'
 
 const KEY = 'cart'
 
 export const cartStore = createStore<CartItem[]>([])
+export const deliveryStore = createStore<DeliveryMethod>('adresa')
 
 // Called once on the client after hydration; SSR always renders an empty cart.
 export function hydrateCart() {
   try {
     const parsed = cartSchema.safeParse(JSON.parse(localStorage.getItem(KEY) ?? '[]'))
     if (parsed.success) cartStore.setState(() => parsed.data)
+    const delivery = deliveryMethodSchema.safeParse(localStorage.getItem('delivery'))
+    if (delivery.success) deliveryStore.setState(() => delivery.data)
   } catch {}
   cartStore.subscribe((items) => {
     try {
       localStorage.setItem(KEY, JSON.stringify(items))
+    } catch {}
+  })
+  deliveryStore.subscribe((method) => {
+    try {
+      localStorage.setItem('delivery', method)
     } catch {}
   })
 }

@@ -1,32 +1,37 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { queryOptions, useSuspenseQuery } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
 import { useForm } from '@tanstack/react-form'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
-import { cartStore } from '#/lib/cart-store'
-import { cartLines, checkoutSchema, formatCzk, setQty } from '#/lib/shop'
-import { createCheckout } from '#/server/shop'
+import { cartStore, deliveryStore } from '#/lib/cart-store'
+import { cartLines, cartTotal, checkoutSchema, deliveryPrice, formatCzk, setQty } from '#/lib/shop'
+import { createCheckout, getDeliveryConfig } from '#/server/shop'
 import { productsQuery } from './index'
 
+const deliveryQuery = queryOptions({ queryKey: ['delivery'], queryFn: () => getDeliveryConfig() })
+
 export const Route = createFileRoute('/kosik')({
-  loader: ({ context }) => context.queryClient.ensureQueryData(productsQuery),
+  loader: ({ context }) =>
+    Promise.all([context.queryClient.ensureQueryData(productsQuery), context.queryClient.ensureQueryData(deliveryQuery)]),
   head: () => ({ meta: [{ title: 'Košík' }] }),
   component: CartPage,
 })
 
 function CartPage() {
   const { data: products } = useSuspenseQuery(productsQuery)
+  const { data: deliveryConfig } = useSuspenseQuery(deliveryQuery)
   const items = useSelector(cartStore)
+  const delivery = useSelector(deliveryStore)
   const lines = cartLines(items, products)
-  const total = lines.reduce((sum, l) => sum + l.subtotal, 0)
+  const total = cartTotal(lines, delivery, deliveryConfig)
 
   const form = useForm({
     defaultValues: { name: '', email: '' },
     validators: { onChange: checkoutSchema },
     onSubmit: async ({ value }) => {
-      const { url } = await createCheckout({ data: { ...value, items } })
+      const { url } = await createCheckout({ data: { ...value, items, delivery: deliveryStore.state } })
       window.location.href = url
     },
   })
@@ -51,6 +56,34 @@ function CartPage() {
             <span className="w-24 text-right">{formatCzk(subtotal)}</span>
           </li>
         ))}
+        <li className="py-3">
+          <fieldset className="space-y-2">
+            <legend className="mb-2 font-medium">Způsob doručení</legend>
+            {(
+              [
+                ['adresa', 'Doručení na adresu', ''],
+                ['odber', 'Osobní odběr', deliveryConfig.pickupPlace],
+              ] as const
+            ).map(([method, label, note]) => (
+              <label key={method} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="delivery"
+                  className="mt-1"
+                  checked={delivery === method}
+                  onChange={() => deliveryStore.setState(() => method)}
+                />
+                <span className="flex-1">
+                  {label}
+                  {note && <span className="block text-sm text-muted-foreground">{note}</span>}
+                </span>
+                <span className="w-24 text-right">
+                  {deliveryPrice(method, deliveryConfig) ? formatCzk(deliveryPrice(method, deliveryConfig)) : 'Zdarma'}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        </li>
         <li className="flex justify-between py-3 font-bold">
           <span>Celkem</span>
           <span>{formatCzk(total)}</span>

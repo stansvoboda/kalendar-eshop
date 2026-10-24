@@ -27,6 +27,32 @@ const order = defineType({
     defineField({ name: 'email', title: 'E-mail', type: 'string' }),
     defineField({ name: 'total', title: 'Celkem (Kč)', type: 'number' }),
     defineField({
+      name: 'delivery',
+      title: 'Způsob doručení',
+      type: 'string',
+      options: {
+        list: [
+          { title: 'Doručení na adresu', value: 'adresa' },
+          { title: 'Osobní odběr', value: 'odber' },
+        ],
+      },
+    }),
+    defineField({ name: 'deliveryPrice', title: 'Cena doručení (Kč)', type: 'number' }),
+    defineField({
+      name: 'address',
+      title: 'Doručovací adresa',
+      type: 'object',
+      hidden: ({ value }) => !value,
+      fields: [
+        defineField({ name: 'name', title: 'Jméno', type: 'string' }),
+        defineField({ name: 'line1', title: 'Ulice', type: 'string' }),
+        defineField({ name: 'line2', title: 'Doplněk adresy', type: 'string' }),
+        defineField({ name: 'city', title: 'Město', type: 'string' }),
+        defineField({ name: 'postalCode', title: 'PSČ', type: 'string' }),
+        defineField({ name: 'country', title: 'Země', type: 'string' }),
+      ],
+    }),
+    defineField({
       name: 'items',
       title: 'Položky',
       type: 'array',
@@ -34,6 +60,7 @@ const order = defineType({
         {
           type: 'object',
           fields: [
+            defineField({ name: 'productId', title: 'Id produktu', type: 'string' }),
             defineField({ name: 'name', title: 'Název', type: 'string' }),
             defineField({ name: 'qty', title: 'Počet', type: 'number' }),
             defineField({ name: 'subtotal', title: 'Mezisoučet (Kč)', type: 'number' }),

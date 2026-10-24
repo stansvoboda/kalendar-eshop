@@ -23,6 +23,15 @@ export const cartSchema = z
   .array(z.object({ id: z.string(), qty: z.number().int().min(1).max(99) }))
   .min(1, 'Košík je prázdný')
 
+// Způsob doručení: 'adresa' = Doručení na adresu, 'odber' = Osobní odběr.
+export const deliveryMethodSchema = z.enum(['adresa', 'odber'])
+export type DeliveryMethod = z.infer<typeof deliveryMethodSchema>
+// From server config; price in whole CZK.
+export type DeliveryConfig = { price: number; pickupPlace: string }
+
+export const deliveryPrice = (method: DeliveryMethod, config: DeliveryConfig) =>
+  method === 'adresa' ? config.price : 0
+
 export const formatCzk = (czk: number) =>
   new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(czk)
 
@@ -43,4 +52,8 @@ export function cartLines(items: CartItem[], products: Product[]) {
     const product = products.find((p) => p._id === item.id)
     return product ? [{ product, qty: item.qty, subtotal: product.price * item.qty }] : []
   })
+}
+
+export function cartTotal(lines: { subtotal: number }[], method: DeliveryMethod, config: DeliveryConfig) {
+  return lines.reduce((sum, l) => sum + l.subtotal, deliveryPrice(method, config))
 }

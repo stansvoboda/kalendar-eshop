@@ -42,7 +42,10 @@ export function sanityOrderStore(sanity: SanityClient): OrderStore {
 export function stripePayments(stripe: Stripe): Payments {
   return {
     async lineItems(sessionId) {
-      const { data } = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 100 })
+      const { data } = await stripe.checkout.sessions.listLineItems(sessionId, {
+        limit: 100,
+        expand: ['data.price.product'],
+      })
       return data
     },
   }

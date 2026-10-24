@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addToCart, cartLines, cartSchema, checkoutSchema, setQty } from './shop'
+import { addToCart, cartLines, cartSchema, cartTotal, checkoutSchema, deliveryMethodSchema, setQty } from './shop'
 import type { Product } from './shop'
 
 const products: Product[] = [
@@ -25,7 +25,26 @@ describe('cart', () => {
   })
 })
 
+describe('cart total', () => {
+  const lines = cartLines([{ id: 'a', qty: 2 }, { id: 'b', qty: 1 }], products)
+  const delivery = { price: 99, pickupPlace: 'Praha' }
+
+  it('adds one fixed delivery price for Doručení na adresu regardless of kusy', () => {
+    expect(cartTotal(lines, 'adresa', delivery)).toBe(390 * 2 + 450 + 99)
+  })
+
+  it('Osobní odběr is free', () => {
+    expect(cartTotal(lines, 'odber', delivery)).toBe(1230)
+  })
+})
+
 describe('validation', () => {
+  it('accepts only known způsoby doručení', () => {
+    expect(deliveryMethodSchema.safeParse('adresa').success).toBe(true)
+    expect(deliveryMethodSchema.safeParse('odber').success).toBe(true)
+    expect(deliveryMethodSchema.safeParse('dron').success).toBe(false)
+  })
+
   it('rejects empty cart and bad email', () => {
     expect(cartSchema.safeParse([]).success).toBe(false)
     expect(checkoutSchema.safeParse({ name: 'Jan', email: 'nope' }).success).toBe(false)
