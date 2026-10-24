@@ -2,8 +2,10 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@sanity/client'
 import Stripe from 'stripe'
+import { z } from 'zod'
 import { cartLines, cartSchema, checkoutSchema, deliveryMethodSchema, deliveryPrice, productSchema } from '#/lib/shop'
 import type { DeliveryConfig } from '#/lib/shop'
+import { paidOrderSummary } from './thank-you'
 
 const PRODUCTS = `*[_type == "product" && defined(slug.current)] | order(name asc) {
   _id, name, "slug": slug.current, price, "description": coalesce(description, null), "imageUrl": coalesce(image.asset->url, null)
@@ -72,8 +74,12 @@ export const createCheckout = createServerFn({ method: 'POST' })
           },
         },
       ],
-      success_url: `${origin}/dekujeme`,
+      success_url: `${origin}/dekujeme?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/kosik`,
     })
     return { url: session.url! }
   })
+
+export const getPaidOrder = createServerFn()
+  .validator(z.object({ sessionId: z.string() }))
+  .handler(({ data }) => paidOrderSummary(new Stripe(process.env.STRIPE_SECRET_KEY!), data.sessionId))

@@ -26,3 +26,11 @@ export function hydrateCart() {
     } catch {}
   })
 }
+
+// Also clears storage: on a full page load this runs before hydrateCart, which would restore the old cart.
+export function clearCart() {
+  cartStore.setState(() => [])
+  try {
+    localStorage.setItem(KEY, '[]')
+  } catch {}
+}
