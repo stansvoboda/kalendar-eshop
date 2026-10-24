@@ -19,6 +19,9 @@ function fakeStore() {
       const doc = docs.get(orderId)!
       doc.sentEmails = [...(doc.sentEmails ?? []), email]
     },
+    async setStav(orderId, stav) {
+      docs.get(orderId)!.stav = stav
+    },
   }
   return { store, docs }
 }
@@ -50,6 +53,9 @@ const payments: Payments = {
     return [
       { id: 'li_1', description: 'Kalendář A', quantity: 2, amount_total: 78_000, price: { product: { metadata: { productId: 'a' } } } },
     ] as unknown as Stripe.LineItem[]
+  },
+  async sessionIdForPaymentIntent(paymentIntentId) {
+    return paymentIntentId === 'pi_1' ? 'cs_test_1' : null
   },
 }
 
@@ -192,4 +198,85 @@ it('no přeprodej upozornění when the last kusy sell out exactly', async () =>
   await events.zaplaceno(session)
 
   expect(sent.map((m) => m.subject).join()).not.toContain('Přeprodej')
+})
+
+// A charge for `session` (87 900 haléřů) after vrácení of `amountRefunded`; the last refund is re_<amountRefunded>.
+function refundedCharge(amountRefunded: number, lastRefund = amountRefunded) {
+  return {
+    id: 'ch_1',
+    payment_intent: 'pi_1',
+    amount: 87_900,
+    amount_refunded: amountRefunded,
+    refunded: amountRefunded === 87_900,
+    refunds: { data: [{ id: `re_${amountRefunded}`, amount: lastRefund }] },
+  } as unknown as Stripe.Charge
+}
+
+it('plné vrácení peněz makes the objednávka Stornovaná and e-mails the kupující o stornu', async () => {
+  const { events, docs, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vracenyPenize(refundedCharge(87_900))
+
+  expect(docs.get('orders.cs_test_1')!.stav).toBe('stornovana')
+  expect(sent).toHaveLength(3)
+  expect(sent[2].to).toBe('jan@example.cz')
+  expect(sent[2].subject).toContain('Objednávka stornována')
+  expect(sent[2].text).toContain('879')
+})
+
+it('a Vyřízená objednávka can be stornována too', async () => {
+  const { events, docs } = setup()
+  await events.zaplaceno(session)
+  docs.get('orders.cs_test_1')!.stav = 'vyrizena'
+  await events.vracenyPenize(refundedCharge(87_900))
+
+  expect(docs.get('orders.cs_test_1')!.stav).toBe('stornovana')
+})
+
+it('storno does not return kusy to the sklad', async () => {
+  const { events, levels } = setup({ skladem: 5 })
+  await events.zaplaceno(session)
+  await events.vracenyPenize(refundedCharge(87_900))
+
+  expect(levels.get('a')).toBe(3)
+})
+
+it('částečné vrácení keeps the stav and e-mails the vrácená částka', async () => {
+  const { events, docs, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vracenyPenize(refundedCharge(9_900))
+
+  expect(docs.get('orders.cs_test_1')!.stav).toBe('zaplacena')
+  expect(sent).toHaveLength(3)
+  expect(sent[2].to).toBe('jan@example.cz')
+  expect(sent[2].subject).toContain('Vrácení peněz')
+  expect(sent[2].text).toContain('99')
+})
+
+it('each částečné vrácení sends its own e-mail, naming only that refund', async () => {
+  const { events, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vracenyPenize(refundedCharge(9_900))
+  await events.vracenyPenize(refundedCharge(19_900, 10_000))
+
+  expect(sent).toHaveLength(4)
+  expect(sent[3].text).toContain('100')
+})
+
+it('a repeated vrácení webhook sends no e-mail again', async () => {
+  const { events, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vracenyPenize(refundedCharge(9_900))
+  await events.vracenyPenize(refundedCharge(9_900))
+  await events.vracenyPenize(refundedCharge(87_900))
+  await events.vracenyPenize(refundedCharge(87_900))
+
+  expect(sent).toHaveLength(4)
+})
+
+it('vrácení for a charge without an objednávka sends nothing', async () => {
+  const { events, sent } = setup()
+  await events.vracenyPenize({ ...refundedCharge(87_900), payment_intent: 'pi_other' } as Stripe.Charge)
+
+  expect(sent).toHaveLength(0)
 })

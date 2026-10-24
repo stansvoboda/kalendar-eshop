@@ -39,6 +39,10 @@ export const Route = createFileRoute('/api/stripe-webhook')({
         if (event.type === 'checkout.session.completed' && event.data.object.payment_status === 'paid') {
           await events.zaplaceno(event.data.object)
         }
+        if (event.type === 'charge.refunded') {
+          // Re-fetched: webhook charges don't include their refunds.
+          await events.vracenyPenize(await stripe.charges.retrieve(event.data.object.id, { expand: ['refunds'] }))
+        }
         return new Response('ok')
       },
     },
