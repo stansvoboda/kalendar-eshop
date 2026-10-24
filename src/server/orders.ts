@@ -41,3 +41,5 @@ export function orderFromSession(session: Stripe.Checkout.Session, lineItems: St
     }),
   }
 }
+
+export type Order = ReturnType<typeof orderFromSession>

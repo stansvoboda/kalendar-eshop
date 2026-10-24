@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest'
 import type Stripe from 'stripe'
 import { render } from '@react-email/components'
-import { createOrderEvents, type Order, type OrderStore, type Payments, type Stock } from './order-events'
+import { createOrderEvents, type OrderStore, type Payments, type Stock } from './order-events'
+import type { Order } from './orders'
 import type { Mailer } from './mailer'
 
 function fakeStore() {
@@ -38,10 +39,15 @@ function fakeStock(initial: Record<string, number>) {
 }
 
 // Keeps each e-mail as plain text so tests check the údaje, not the markup.
-function fakeMailer() {
+function fakeMailer(failOnce?: string) {
   const sent: { to: string; subject: string; text: string }[] = []
+  let failed = false
   const mailer: Mailer = {
     async send({ to, subject, react }) {
+      if (failOnce && !failed && subject.includes(failOnce)) {
+        failed = true
+        throw new Error('Resend down')
+      }
       sent.push({ to, subject, text: await render(react, { plainText: true }) })
     },
   }
@@ -84,9 +90,9 @@ const odberSession = {
   collected_information: null,
 } as unknown as Stripe.Checkout.Session
 
-function setup({ skladem = 10 } = {}) {
+function setup({ skladem = 10, failOnce = undefined as string | undefined } = {}) {
   const { store, docs } = fakeStore()
-  const { mailer, sent } = fakeMailer()
+  const { mailer, sent } = fakeMailer(failOnce)
   const { stock, levels } = fakeStock({ a: skladem })
   return { docs, sent, levels, events: createOrderEvents({ store, payments, mailer, shop, stock }) }
 }
@@ -180,6 +186,15 @@ it('zaplaceno odečte kusy once, even when the událost repeats', async () => {
   await events.zaplaceno(session)
 
   expect(levels.get('a')).toBe(3)
+})
+
+it('a zaplaceno retried after a failed e-mail finishes the remaining steps without repeating done ones', async () => {
+  const { events, sent, levels } = setup({ skladem: 1, failOnce: 'Nová objednávka' })
+  await expect(events.zaplaceno(session)).rejects.toThrow('Resend down')
+  await events.zaplaceno(session)
+
+  expect(levels.get('a')).toBe(-1)
+  expect(sent.map((m) => m.subject.split(':')[0])).toEqual(['Objednávka přijata', 'Nová objednávka', 'Přeprodej'])
 })
 
 it('přeprodej creates the objednávka and sends the obchodník an upozornění', async () => {

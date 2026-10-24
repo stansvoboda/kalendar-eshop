@@ -1,5 +1,5 @@
 import { Text } from '@react-email/components'
-import type { Order } from '#/server/order-events'
+import type { Order } from '#/server/orders'
 import { Layout } from './layout'
 
 // Upozornění pro obchodníka: the objednávka pushed these produkty below zero kusů skladem.

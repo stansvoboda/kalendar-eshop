@@ -1,5 +1,5 @@
 import { Text } from '@react-email/components'
-import type { Order } from '#/server/order-events'
+import type { Order } from '#/server/orders'
 import { formatCzk } from '#/lib/shop'
 import { Layout } from './layout'
 

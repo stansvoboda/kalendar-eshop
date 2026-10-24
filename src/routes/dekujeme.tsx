@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { clearCart } from '#/lib/cart-store'
-import { formatCzk } from '#/lib/shop'
+import { deliveryLabel, formatCzk } from '#/lib/shop'
 import { getPaidOrder } from '#/server/shop'
 
 export const Route = createFileRoute('/dekujeme')({
@@ -43,7 +43,7 @@ function ThankYou() {
           </li>
         ))}
         <li className="flex justify-between gap-4 py-3">
-          <span>{order.delivery === 'odber' ? 'Osobní odběr' : 'Doručení na adresu'}</span>
+          <span>{deliveryLabel(order.delivery)}</span>
           <span>{order.deliveryPrice ? formatCzk(order.deliveryPrice) : 'Zdarma'}</span>
         </li>
         <li className="flex justify-between py-3 font-bold">

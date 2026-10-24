@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { queryOptions, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
 import { useForm } from '@tanstack/react-form'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { cartStore, deliveryStore } from '#/lib/cart-store'
-import { cartLines, cartTotal, checkoutSchema, deliveryPrice, formatCzk, setQty, stockProblems } from '#/lib/shop'
-import { createCheckout, getDeliveryConfig } from '#/server/shop'
+import { cartLines, cartTotal, checkoutSchema, deliveryLabel, deliveryPrice, formatCzk, setQty } from '#/lib/shop'
+import { createCheckout, getDeliveryConfig, getStockProblems } from '#/server/shop'
 import { productsQuery } from './index'
 
 const deliveryQuery = queryOptions({ queryKey: ['delivery'], queryFn: () => getDeliveryConfig() })
@@ -27,7 +27,12 @@ function CartPage() {
   const delivery = useSelector(deliveryStore)
   const lines = cartLines(items, products)
   const total = cartTotal(lines, delivery, deliveryConfig)
-  const problems = stockProblems(lines)
+  // Checked on the server so the browser never learns kusy skladem; until it answers, payment waits.
+  const { data: problems } = useQuery({
+    queryKey: ['stockProblems', items],
+    queryFn: () => getStockProblems({ data: items }),
+    enabled: items.length > 0,
+  })
   const queryClient = useQueryClient()
   const [checkoutError, setCheckoutError] = useState('')
 
@@ -41,7 +46,8 @@ function CartPage() {
         window.location.href = url
       } catch (err) {
         setCheckoutError((err as Error).message)
-        // Sklad may have changed since the katalog loaded; refetch so the problémové položky show.
+        // Sklad may have changed since the košík loaded; recheck so the problémové položky show.
+        await queryClient.invalidateQueries({ queryKey: ['stockProblems'] })
         await queryClient.invalidateQueries({ queryKey: productsQuery.queryKey })
       }
     },
@@ -56,9 +62,9 @@ function CartPage() {
           <li key={product._id} className="flex items-center justify-between gap-4 py-3">
             <span className="flex-1">
               {product.name}
-              {problems.some((l) => l.product._id === product._id) && (
+              {problems?.includes(product._id) && (
                 <span className="block text-sm text-destructive">
-                  {product.stock > 0 ? `Skladem jen ${product.stock} ks` : 'Vyprodáno'}
+                  {product.inStock ? 'Skladem není dost kusů' : 'Vyprodáno'}
                 </span>
               )}
             </span>
@@ -79,10 +85,10 @@ function CartPage() {
             <legend className="mb-2 font-medium">Způsob doručení</legend>
             {(
               [
-                ['adresa', 'Doručení na adresu', ''],
-                ['odber', 'Osobní odběr', deliveryConfig.pickupPlace],
+                ['adresa', ''],
+                ['odber', deliveryConfig.pickupPlace],
               ] as const
-            ).map(([method, label, note]) => (
+            ).map(([method, note]) => (
               <label key={method} className="flex items-start gap-2">
                 <input
                   type="radio"
@@ -92,7 +98,7 @@ function CartPage() {
                   onChange={() => deliveryStore.setState(() => method)}
                 />
                 <span className="flex-1">
-                  {label}
+                  {deliveryLabel(method)}
                   {note && <span className="block text-sm text-muted-foreground">{note}</span>}
                 </span>
                 <span className="w-24 text-right">
@@ -137,7 +143,7 @@ function CartPage() {
         ))}
         <form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
           {([canSubmit, isSubmitting]) => (
-            <Button type="submit" disabled={!canSubmit || isSubmitting || problems.length > 0}>
+            <Button type="submit" disabled={!canSubmit || isSubmitting || !problems || problems.length > 0}>
               {isSubmitting ? 'Přesměrovávám…' : 'Zaplatit'}
             </Button>
           )}

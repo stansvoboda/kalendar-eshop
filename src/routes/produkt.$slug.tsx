@@ -25,9 +25,9 @@ function ProductPage() {
         <h1 className="text-3xl font-bold">{p.name}</h1>
         <p className="text-2xl font-semibold">{formatCzk(p.price)}</p>
         {p.description && <p className="whitespace-pre-line text-muted-foreground">{p.description}</p>}
-        <Badge variant={p.stock > 0 ? 'secondary' : 'outline'}>{p.stock > 0 ? 'Skladem' : 'Vyprodáno'}</Badge>
+        <Badge variant={p.inStock ? 'secondary' : 'outline'}>{p.inStock ? 'Skladem' : 'Vyprodáno'}</Badge>
         <div>
-          <Button disabled={p.stock <= 0} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
+          <Button disabled={!p.inStock} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
             Do košíku
           </Button>
         </div>

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Body, Container, Head, Heading, Hr, Html, Preview, Section, Text } from '@react-email/components'
-import type { Order } from '#/server/order-events'
-import { formatCzk } from '#/lib/shop'
+import type { Order } from '#/server/orders'
+import { deliveryLabel, formatCzk } from '#/lib/shop'
 
 // Shared layout for every e-mail: shop name header, contact footer.
 export function Layout({ preview, contact, children }: { preview: string; contact: string; children: ReactNode }) {
@@ -23,9 +23,11 @@ export function Layout({ preview, contact, children }: { preview: string; contac
   )
 }
 
+export const formatAddress = (address: NonNullable<Order['address']>) =>
+  [address.name, address.line1, address.line2, `${address.postalCode} ${address.city}`].filter(Boolean).join(', ')
+
 // Položky, způsob doručení and celkem, shared by e-mails that summarise an objednávka.
 export function OrderSummary({ order, pickupPlace }: { order: Order; pickupPlace: string }) {
-  const a = order.address
   return (
     <Section>
       {order.items.map((item) => (
@@ -34,12 +36,13 @@ export function OrderSummary({ order, pickupPlace }: { order: Order; pickupPlace
         </Text>
       ))}
       <Text style={{ margin: '4px 0' }}>
-        {order.delivery === 'odber' ? `Osobní odběr: ${pickupPlace}` : 'Doručení na adresu'}:{' '}
+        {deliveryLabel(order.delivery)}
+        {order.delivery === 'odber' && `: ${pickupPlace}`}:{' '}
         {formatCzk(order.deliveryPrice)}
       </Text>
-      {a && (
+      {order.address && (
         <Text style={{ margin: '4px 0' }}>
-          Doručovací adresa: {[a.name, a.line1, a.line2, `${a.postalCode} ${a.city}`].filter(Boolean).join(', ')}
+          Doručovací adresa: {formatAddress(order.address)}
         </Text>
       )}
       <Text style={{ fontWeight: 'bold' }}>Celkem: {formatCzk(order.total)}</Text>

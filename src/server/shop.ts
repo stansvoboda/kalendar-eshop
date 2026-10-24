@@ -3,7 +3,7 @@ import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@sanity/client'
 import Stripe from 'stripe'
 import { z } from 'zod'
-import { cartLines, cartSchema, checkoutSchema, deliveryMethodSchema, deliveryPrice, productSchema, stockProblems } from '#/lib/shop'
+import { cartLines, cartSchema, checkoutSchema, deliveryLabel, deliveryMethodSchema, deliveryPrice, productSchema, publicProduct, stockProblems } from '#/lib/shop'
 import type { DeliveryConfig } from '#/lib/shop'
 import { paidOrderSummary } from './thank-you'
 
@@ -12,13 +12,18 @@ const PRODUCTS = `*[_type == "product" && defined(slug.current)] | order(name as
 }`
 
 // Env is read per request: on Workers it doesn't exist at module load.
-async function fetchProducts() {
-  const sanity = createClient({
+// Writes need the token and fresh data; reads go through the CDN.
+export function sanityClient({ write = false } = {}) {
+  return createClient({
     projectId: process.env.SANITY_PROJECT_ID,
     dataset: process.env.SANITY_DATASET ?? 'production',
     apiVersion: '2025-01-01',
-    useCdn: true,
+    ...(write ? { token: process.env.SANITY_WRITE_TOKEN, useCdn: false } : { useCdn: true }),
   })
+}
+
+async function fetchProducts() {
+  const sanity = sanityClient()
   // Skip products with bad data (e.g. price 0) instead of breaking the whole shop.
   const rows: unknown[] = await sanity.fetch(PRODUCTS)
   return rows.flatMap((row) => {
@@ -27,7 +32,12 @@ async function fetchProducts() {
   })
 }
 
-export const getProducts = createServerFn().handler(fetchProducts)
+export const getProducts = createServerFn().handler(async () => (await fetchProducts()).map(publicProduct))
+
+// Košík položky that are vyprodané or exceed kusy skladem, without revealing the counts.
+export const getStockProblems = createServerFn({ method: 'POST' })
+  .validator(cartSchema)
+  .handler(async ({ data }) => stockProblems(cartLines(data, await fetchProducts())).map((l) => l.product._id))
 
 export function deliveryConfig(): DeliveryConfig {
   return {
@@ -46,7 +56,7 @@ export const createCheckout = createServerFn({ method: 'POST' })
     // useCdn may lag a few seconds; the rare přeprodej that slips through is accepted (ADR 0002).
     const problems = stockProblems(lines)
     if (problems.length)
-      throw new Error(`Nedostatek kusů skladem: ${problems.map((l) => `${l.product.name} (skladem ${Math.max(l.product.stock, 0)})`).join(', ')}`)
+      throw new Error(`Nedostatek kusů skladem: ${problems.map((l) => l.product.name).join(', ')}`)
 
     const config = deliveryConfig()
     const adresa = data.delivery === 'adresa'
@@ -74,7 +84,7 @@ export const createCheckout = createServerFn({ method: 'POST' })
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: deliveryPrice(data.delivery, config) * 100, currency: 'czk' },
-            display_name: adresa ? 'Doručení na adresu' : `Osobní odběr: ${config.pickupPlace}`,
+            display_name: adresa ? deliveryLabel(data.delivery) : `${deliveryLabel(data.delivery)}: ${config.pickupPlace}`,
           },
         },
       ],

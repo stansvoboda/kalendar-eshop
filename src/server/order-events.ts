@@ -1,8 +1,9 @@
 import type { SanityClient } from '@sanity/client'
-import type Stripe from 'stripe'
+import Stripe from 'stripe'
 import { createElement } from 'react'
-import { orderFromSession, type OrderStav } from './orders'
-import type { Mailer } from './mailer'
+import { orderFromSession, type Order, type OrderStav } from './orders'
+import { resendMailer, type Mailer } from './mailer'
+import { deliveryConfig, sanityClient } from './shop'
 import { ObjednavkaPrijata } from '#/emails/objednavka-prijata'
 import { NovaObjednavka } from '#/emails/nova-objednavka'
 import { ObjednavkaVyrizena } from '#/emails/objednavka-vyrizena'
@@ -12,9 +13,8 @@ import { VraceniPenez } from '#/emails/vraceni-penez'
 
 // Zpracování událostí objednávky: receives already-verified events, does all side effects through ports.
 
-export type Order = ReturnType<typeof orderFromSession>
-
-// sentEmails: keys of kupující e-mails already sent for this objednávka ('vyrizeno', …), for idempotency on webhook retries.
+// sentEmails: keys of steps already done for this objednávka (e-mails like 'vyrizeno', odečty like 'sklad:<productId>:<left>'),
+// for idempotency on webhook retries. Named before it held odečty; kept so existing documents still work.
 export type StoredOrder = Order & { sentEmails?: string[] }
 
 export interface OrderStore {
@@ -52,41 +52,47 @@ export function createOrderEvents({
   mailer: Mailer
   shop: ShopConfig
 }) {
-  // Sends unless the objednávka's record says it was sent. shortcut: two truly concurrent deliveries can both send; add an ifRevisionId check if that shows up.
-  async function sendOnce(order: StoredOrder, email: string, mail: Parameters<Mailer['send']>[0]) {
-    if (order.sentEmails?.includes(email)) return
+  // Sends unless the objednávka's record says it was sent; a failed send is retried on the next delivery.
+  // Concurrent deliveries can both pass the check and send twice; add an ifRevisionId check if that shows up.
+  async function sendOnce(order: StoredOrder, key: string, mail: Parameters<Mailer['send']>[0]) {
+    if (order.sentEmails?.includes(key)) return
     await mailer.send(mail)
-    await store.recordSentEmail(order._id, email)
+    await store.recordSentEmail(order._id, key)
   }
 
   return {
+    // Every delivery runs the steps not yet done, so a Stripe retry finishes what a failed delivery left (story 38).
     async zaplaceno(session: Stripe.Checkout.Session) {
-      const order = orderFromSession(session, await payments.lineItems(session.id))
-      const created = await store.createOrder(order)
-      // Only the first delivery sends e-mails; a retry after a failed send won't resend (shortcut: no per-e-mail record yet).
-      if (created) {
-        // Before e-mails: a failed send must not leave kusy un-subtracted, and a retry won't subtract again.
-        const oversold = []
-        for (const item of order.items) {
-          if (!item.productId) continue
-          const left = await stock.decrement(item.productId, item.qty)
-          if (left < 0) oversold.push({ name: item.name, stock: left })
-        }
-        const props = { order, pickupPlace: shop.pickupPlace, contact: shop.merchantEmail }
-        await mailer.send({ to: order.email, subject: 'Objednávka přijata', react: createElement(ObjednavkaPrijata, props) })
-        await mailer.send({
-          to: shop.merchantEmail,
-          subject: `Nová objednávka: ${order.name}, ${order.total} Kč`,
-          react: createElement(NovaObjednavka, props),
-        })
-        if (oversold.length)
-          await mailer.send({
-            to: shop.merchantEmail,
-            subject: `Přeprodej: objednávka od ${order.name}`,
-            react: createElement(Preprodej, { order, oversold, contact: shop.merchantEmail }),
-          })
+      const fresh = orderFromSession(session, await payments.lineItems(session.id))
+      await store.createOrder(fresh)
+      const order = (await store.getOrder(fresh._id))!
+      // Kusy first: a failed e-mail must not leave them un-subtracted. The key keeps the new count for the přeprodej upozornění.
+      for (const item of order.items) {
+        if (!item.productId) continue
+        const prefix = `sklad:${item.productId}:`
+        if (order.sentEmails?.some((k) => k.startsWith(prefix))) continue
+        const left = await stock.decrement(item.productId, item.qty)
+        await store.recordSentEmail(order._id, prefix + left)
       }
-      return { created }
+      const done = (await store.getOrder(order._id))!
+      const oversold = order.items.flatMap((item) => {
+        const key = done.sentEmails?.find((k) => k.startsWith(`sklad:${item.productId}:`))
+        const left = Number(key?.split(':')[2])
+        return left < 0 ? [{ name: item.name, stock: left }] : []
+      })
+      const props = { order, pickupPlace: shop.pickupPlace, contact: shop.merchantEmail }
+      await sendOnce(done, 'prijata', { to: order.email, subject: 'Objednávka přijata', react: createElement(ObjednavkaPrijata, props) })
+      await sendOnce(done, 'nova', {
+        to: shop.merchantEmail,
+        subject: `Nová objednávka: ${order.name}, ${order.total} Kč`,
+        react: createElement(NovaObjednavka, props),
+      })
+      if (oversold.length)
+        await sendOnce(done, 'preprodej', {
+          to: shop.merchantEmail,
+          subject: `Přeprodej: objednávka od ${order.name}`,
+          react: createElement(Preprodej, { order, oversold, contact: shop.merchantEmail }),
+        })
     },
 
     async vyrizeno(orderId: string) {
@@ -102,8 +108,8 @@ export function createOrderEvents({
     // Storno (ADR 0001): full vrácení makes the objednávka Stornovaná from any stav; kusy stay subtracted.
     // The charge must carry its refunds (newest first), e.g. retrieved with `expand: ['refunds']`.
     async vracenyPenize(charge: Stripe.Charge) {
-      const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id
-      const sessionId = pi && (await payments.sessionIdForPaymentIntent(pi))
+      const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id
+      const sessionId = paymentIntentId && (await payments.sessionIdForPaymentIntent(paymentIntentId))
       const order = sessionId && (await store.getOrder(`orders.${sessionId}`))
       if (!order) return
       if (charge.refunded) {
@@ -174,4 +180,16 @@ export function stripePayments(stripe: Stripe): Payments {
       return data[0]?.id ?? null
     },
   }
+}
+
+// Zpracování událostí objednávky wired to Sanity, Stripe and Resend, for the webhooks.
+export function orderEventsFromEnv(stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)) {
+  const sanity = sanityClient({ write: true })
+  return createOrderEvents({
+    store: sanityOrderStore(sanity),
+    stock: sanityStock(sanity),
+    payments: stripePayments(stripe),
+    mailer: resendMailer(process.env.RESEND_API_KEY!, process.env.EMAIL_FROM || 'Kalendáře <onboarding@resend.dev>'),
+    shop: { merchantEmail: process.env.MERCHANT_EMAIL!, pickupPlace: deliveryConfig().pickupPlace },
+  })
 }

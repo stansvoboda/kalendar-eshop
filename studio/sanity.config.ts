@@ -37,9 +37,11 @@ const stavField = defineField({
   options: { list: STAV_LIST, layout: 'radio' },
   readOnly: ({ value }) => value === 'vyrizena' || value === 'stornovana',
   components: {
+    // Orders from before stav existed have none; show them as Zaplacená so they can still be switched to Vyřízená.
     input: (props) =>
       props.renderDefault({
         ...props,
+        value: props.value ?? 'zaplacena',
         schemaType: {
           ...props.schemaType,
           options: { ...props.schemaType.options, list: STAV_LIST.filter((o) => o.value !== 'stornovana' || props.value === 'stornovana') },
@@ -102,7 +104,7 @@ const order = defineType({
       ],
     }),
     defineField({ name: 'stripeSessionId', title: 'Stripe session', type: 'string' }),
-    defineField({ name: 'sentEmails', title: 'Odeslané e-maily', type: 'array', of: [{ type: 'string' }], hidden: true }),
+    defineField({ name: 'sentEmails', title: 'Hotové kroky (e-maily, odečty skladu)', type: 'array', of: [{ type: 'string' }], hidden: true }),
   ].map((field) => (field.name === 'stav' ? field : { ...field, readOnly: true })),
   orderings: [{ title: 'Nejnovější', name: 'createdAtDesc', by: [{ field: 'createdAt', direction: 'desc' }] }],
   preview: { select: { title: 'email', subtitle: 'createdAt' } },

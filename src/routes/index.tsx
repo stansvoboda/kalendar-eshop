@@ -32,10 +32,10 @@ function Home() {
           </CardHeader>
           <CardContent className="flex items-center justify-between font-semibold">
             {formatCzk(p.price)}
-            <Badge variant={p.stock > 0 ? 'secondary' : 'outline'}>{p.stock > 0 ? 'Skladem' : 'Vyprodáno'}</Badge>
+            <Badge variant={p.inStock ? 'secondary' : 'outline'}>{p.inStock ? 'Skladem' : 'Vyprodáno'}</Badge>
           </CardContent>
           <CardFooter>
-            <Button disabled={p.stock <= 0} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
+            <Button disabled={!p.inStock} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
               Do košíku
             </Button>
           </CardFooter>

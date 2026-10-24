@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addToCart, cartLines, cartSchema, cartTotal, checkoutSchema, deliveryMethodSchema, setQty, stockProblems } from './shop'
+import { addToCart, cartLines, publicProduct, cartSchema, cartTotal, checkoutSchema, deliveryMethodSchema, setQty, stockProblems } from './shop'
 import type { Product } from './shop'
 
 const products: Product[] = [
@@ -49,6 +49,13 @@ describe('stock check', () => {
 
   it('accepts a košík that fits the sklad exactly', () => {
     expect(stockProblems(cartLines([{ id: 'a', qty: 3 }], products))).toEqual([])
+  })
+})
+
+describe('katalog for the browser', () => {
+  it('shows only Skladem / Vyprodáno, never the number of kusů', () => {
+    expect(publicProduct(products[0])).toEqual({ _id: 'a', name: 'Kalendář A', slug: 'a', price: 390, description: null, imageUrl: null, inStock: true })
+    expect(publicProduct({ ...products[0], stock: -2 }).inStock).toBe(false)
   })
 })
 
