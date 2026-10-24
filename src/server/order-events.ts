@@ -1,6 +1,10 @@
 import type { SanityClient } from '@sanity/client'
 import type Stripe from 'stripe'
+import { createElement } from 'react'
 import { orderFromSession } from './orders'
+import type { Mailer } from './mailer'
+import { ObjednavkaPrijata } from '#/emails/objednavka-prijata'
+import { NovaObjednavka } from '#/emails/nova-objednavka'
 
 // Zpracování událostí objednávky: receives already-verified events, does all side effects through ports.
 
@@ -15,10 +19,34 @@ export interface Payments {
   lineItems(sessionId: string): Promise<Stripe.LineItem[]>
 }
 
-export function createOrderEvents({ store, payments }: { store: OrderStore; payments: Payments }) {
+// From server config; merchantEmail also serves as the contact in every e-mail's footer.
+export type ShopConfig = { merchantEmail: string; pickupPlace: string }
+
+export function createOrderEvents({
+  store,
+  payments,
+  mailer,
+  shop,
+}: {
+  store: OrderStore
+  payments: Payments
+  mailer: Mailer
+  shop: ShopConfig
+}) {
   return {
     async zaplaceno(session: Stripe.Checkout.Session) {
-      const created = await store.createOrder(orderFromSession(session, await payments.lineItems(session.id)))
+      const order = orderFromSession(session, await payments.lineItems(session.id))
+      const created = await store.createOrder(order)
+      // Only the first delivery sends e-mails; a retry after a failed send won't resend (shortcut: no per-e-mail record yet).
+      if (created) {
+        const props = { order, pickupPlace: shop.pickupPlace, contact: shop.merchantEmail }
+        await mailer.send({ to: order.email, subject: 'Objednávka přijata', react: createElement(ObjednavkaPrijata, props) })
+        await mailer.send({
+          to: shop.merchantEmail,
+          subject: `Nová objednávka: ${order.name}, ${order.total} Kč`,
+          react: createElement(NovaObjednavka, props),
+        })
+      }
       return { created }
     },
   }

@@ -28,6 +28,8 @@ Test card: `4242 4242 4242 4242`, any future date, any CVC.
 
 Způsob doručení: `DELIVERY_PRICE_CZK` (Doručení na adresu, default 99) and `PICKUP_PLACE` (odběrní místo text) are read on the server; see `.env.example`.
 
+E-maily: after payment the kupující gets „Objednávka přijata“ and the obchodník „Nová objednávka“, sent via [Resend](https://resend.com). Set `RESEND_API_KEY`, `MERCHANT_EMAIL` and optionally `EMAIL_FROM` in `.env` (production: `wrangler secret put …`). Without a verified domain Resend only delivers to the account's own address. Templates are React Email components in `src/emails/`; new e-mails wrap their content in the shared `Layout`.
+
 ## How it works
 
 Podrobně česky, včetně toho, co chybí do skutečného obchodu: [docs/jak-to-funguje.md](docs/jak-to-funguje.md)

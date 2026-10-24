@@ -27,7 +27,7 @@ async function fetchProducts() {
 
 export const getProducts = createServerFn().handler(fetchProducts)
 
-function deliveryConfig(): DeliveryConfig {
+export function deliveryConfig(): DeliveryConfig {
   return {
     price: Number(process.env.DELIVERY_PRICE_CZK || 99),
     pickupPlace: process.env.PICKUP_PLACE || 'Osobní odběr po domluvě e-mailem',
