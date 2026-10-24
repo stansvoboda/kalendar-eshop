@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { queryOptions, useSuspenseQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
+import { Badge } from '#/components/ui/badge'
 import { cartStore } from '#/lib/cart-store'
 import { addToCart, formatCzk } from '#/lib/shop'
 import { getProducts } from '#/server/shop'
@@ -29,9 +30,14 @@ function Home() {
               <CardTitle>{p.name}</CardTitle>
             </Link>
           </CardHeader>
-          <CardContent className="font-semibold">{formatCzk(p.price)}</CardContent>
+          <CardContent className="flex items-center justify-between font-semibold">
+            {formatCzk(p.price)}
+            <Badge variant={p.stock > 0 ? 'secondary' : 'outline'}>{p.stock > 0 ? 'Skladem' : 'Vyprodáno'}</Badge>
+          </CardContent>
           <CardFooter>
-            <Button onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>Do košíku</Button>
+            <Button disabled={p.stock <= 0} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
+              Do košíku
+            </Button>
           </CardFooter>
         </Card>
       ))}

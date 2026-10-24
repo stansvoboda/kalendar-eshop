@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import type Stripe from 'stripe'
 import { render } from '@react-email/components'
-import { createOrderEvents, type Order, type OrderStore, type Payments } from './order-events'
+import { createOrderEvents, type Order, type OrderStore, type Payments, type Stock } from './order-events'
 import type { Mailer } from './mailer'
 
 function fakeStore() {
@@ -23,6 +23,17 @@ function fakeStore() {
   return { store, docs }
 }
 
+function fakeStock(initial: Record<string, number>) {
+  const levels = new Map(Object.entries(initial))
+  const stock: Stock = {
+    async decrement(productId, qty) {
+      levels.set(productId, (levels.get(productId) ?? 0) - qty)
+      return levels.get(productId)!
+    },
+  }
+  return { stock, levels }
+}
+
 // Keeps each e-mail as plain text so tests check the údaje, not the markup.
 function fakeMailer() {
   const sent: { to: string; subject: string; text: string }[] = []
@@ -36,7 +47,9 @@ function fakeMailer() {
 
 const payments: Payments = {
   async lineItems() {
-    return [{ id: 'li_1', description: 'Kalendář A', quantity: 2, amount_total: 78_000 }] as Stripe.LineItem[]
+    return [
+      { id: 'li_1', description: 'Kalendář A', quantity: 2, amount_total: 78_000, price: { product: { metadata: { productId: 'a' } } } },
+    ] as unknown as Stripe.LineItem[]
   },
 }
 
@@ -65,10 +78,11 @@ const odberSession = {
   collected_information: null,
 } as unknown as Stripe.Checkout.Session
 
-function setup() {
+function setup({ skladem = 10 } = {}) {
   const { store, docs } = fakeStore()
   const { mailer, sent } = fakeMailer()
-  return { docs, sent, events: createOrderEvents({ store, payments, mailer, shop }) }
+  const { stock, levels } = fakeStock({ a: skladem })
+  return { docs, sent, levels, events: createOrderEvents({ store, payments, mailer, shop, stock }) }
 }
 
 it('zaplaceno creates the objednávka', async () => {
@@ -81,7 +95,7 @@ it('zaplaceno creates the objednávka', async () => {
       name: 'Jan',
       total: 879,
       stav: 'zaplacena',
-      items: [{ _key: 'li_1', name: 'Kalendář A', qty: 2, subtotal: 780 }],
+      items: [{ _key: 'li_1', productId: 'a', name: 'Kalendář A', qty: 2, subtotal: 780 }],
     }),
   ])
 })
@@ -152,4 +166,30 @@ it('vyrizeno for an unknown objednávka sends nothing', async () => {
   await events.vyrizeno('orders.missing')
 
   expect(sent).toHaveLength(0)
+})
+
+it('zaplaceno odečte kusy once, even when the událost repeats', async () => {
+  const { events, levels } = setup({ skladem: 5 })
+  await events.zaplaceno(session)
+  await events.zaplaceno(session)
+
+  expect(levels.get('a')).toBe(3)
+})
+
+it('přeprodej creates the objednávka and sends the obchodník an upozornění', async () => {
+  const { events, docs, sent, levels } = setup({ skladem: 1 })
+  await events.zaplaceno(session)
+
+  expect(docs.size).toBe(1)
+  expect(levels.get('a')).toBe(-1)
+  const upozorneni = sent.filter((m) => m.subject.includes('Přeprodej'))
+  expect(upozorneni.map((m) => m.to)).toEqual(['obchod@example.cz'])
+  for (const text of ['Jan', 'Kalendář A', '-1']) expect(upozorneni[0].text).toContain(text)
+})
+
+it('no přeprodej upozornění when the last kusy sell out exactly', async () => {
+  const { events, sent } = setup({ skladem: 2 })
+  await events.zaplaceno(session)
+
+  expect(sent.map((m) => m.subject).join()).not.toContain('Přeprodej')
 })

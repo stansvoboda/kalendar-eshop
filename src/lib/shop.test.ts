@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { addToCart, cartLines, cartSchema, cartTotal, checkoutSchema, deliveryMethodSchema, setQty } from './shop'
+import { addToCart, cartLines, cartSchema, cartTotal, checkoutSchema, deliveryMethodSchema, setQty, stockProblems } from './shop'
 import type { Product } from './shop'
 
 const products: Product[] = [
-  { _id: 'a', name: 'Kalendář A', slug: 'a', price: 390, description: null, imageUrl: null },
-  { _id: 'b', name: 'Kalendář B', slug: 'b', price: 450, description: null, imageUrl: null },
+  { _id: 'a', name: 'Kalendář A', slug: 'a', price: 390, description: null, imageUrl: null, stock: 3 },
+  { _id: 'b', name: 'Kalendář B', slug: 'b', price: 450, description: null, imageUrl: null, stock: 0 },
 ]
 
 describe('cart', () => {
@@ -35,6 +35,20 @@ describe('cart total', () => {
 
   it('Osobní odběr is free', () => {
     expect(cartTotal(lines, 'odber', delivery)).toBe(1230)
+  })
+})
+
+describe('stock check', () => {
+  it('flags položky with more kusů in the košík than skladem', () => {
+    const lines = cartLines([{ id: 'a', qty: 4 }, { id: 'b', qty: 1 }], products)
+    expect(stockProblems(lines).map((l) => [l.product._id, l.qty, l.product.stock])).toEqual([
+      ['a', 4, 3],
+      ['b', 1, 0],
+    ])
+  })
+
+  it('accepts a košík that fits the sklad exactly', () => {
+    expect(stockProblems(cartLines([{ id: 'a', qty: 3 }], products))).toEqual([])
   })
 })
 

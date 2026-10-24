@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createClient } from '@sanity/client'
 import { isValidSignature, SIGNATURE_HEADER_NAME } from '@sanity/webhook'
 import Stripe from 'stripe'
-import { createOrderEvents, sanityOrderStore, stripePayments } from '#/server/order-events'
+import { createOrderEvents, sanityOrderStore, sanityStock, stripePayments } from '#/server/order-events'
 import { resendMailer } from '#/server/mailer'
 import { deliveryConfig } from '#/server/shop'
 
@@ -29,6 +29,7 @@ export const Route = createFileRoute('/api/sanity-webhook')({
         })
         const events = createOrderEvents({
           store: sanityOrderStore(sanity),
+          stock: sanityStock(sanity),
           payments: stripePayments(new Stripe(process.env.STRIPE_SECRET_KEY!)),
           mailer: resendMailer(process.env.RESEND_API_KEY!, process.env.EMAIL_FROM || 'Kalendáře <onboarding@resend.dev>'),
           shop: { merchantEmail: process.env.MERCHANT_EMAIL!, pickupPlace: deliveryConfig().pickupPlace },

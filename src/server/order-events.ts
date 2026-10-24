@@ -6,6 +6,7 @@ import type { Mailer } from './mailer'
 import { ObjednavkaPrijata } from '#/emails/objednavka-prijata'
 import { NovaObjednavka } from '#/emails/nova-objednavka'
 import { ObjednavkaVyrizena } from '#/emails/objednavka-vyrizena'
+import { Preprodej } from '#/emails/preprodej'
 
 // Zpracování událostí objednávky: receives already-verified events, does all side effects through ports.
 
@@ -21,6 +22,11 @@ export interface OrderStore {
   recordSentEmail(orderId: string, email: string): Promise<void>
 }
 
+export interface Stock {
+  /** Atomically subtracts kusy skladem; returns the new count (negative = přeprodej). */
+  decrement(productId: string, qty: number): Promise<number>
+}
+
 export interface Payments {
   lineItems(sessionId: string): Promise<Stripe.LineItem[]>
 }
@@ -33,8 +39,10 @@ export function createOrderEvents({
   payments,
   mailer,
   shop,
+  stock,
 }: {
   store: OrderStore
+  stock: Stock
   payments: Payments
   mailer: Mailer
   shop: ShopConfig
@@ -52,6 +60,13 @@ export function createOrderEvents({
       const created = await store.createOrder(order)
       // Only the first delivery sends e-mails; a retry after a failed send won't resend (shortcut: no per-e-mail record yet).
       if (created) {
+        // Before e-mails: a failed send must not leave kusy un-subtracted, and a retry won't subtract again.
+        const oversold = []
+        for (const item of order.items) {
+          if (!item.productId) continue
+          const left = await stock.decrement(item.productId, item.qty)
+          if (left < 0) oversold.push({ name: item.name, stock: left })
+        }
         const props = { order, pickupPlace: shop.pickupPlace, contact: shop.merchantEmail }
         await mailer.send({ to: order.email, subject: 'Objednávka přijata', react: createElement(ObjednavkaPrijata, props) })
         await mailer.send({
@@ -59,6 +74,12 @@ export function createOrderEvents({
           subject: `Nová objednávka: ${order.name}, ${order.total} Kč`,
           react: createElement(NovaObjednavka, props),
         })
+        if (oversold.length)
+          await mailer.send({
+            to: shop.merchantEmail,
+            subject: `Přeprodej: objednávka od ${order.name}`,
+            react: createElement(Preprodej, { order, oversold, contact: shop.merchantEmail }),
+          })
       }
       return { created }
     },
@@ -92,6 +113,15 @@ export function sanityOrderStore(sanity: SanityClient): OrderStore {
     },
     async recordSentEmail(orderId, email) {
       await sanity.patch(orderId).setIfMissing({ sentEmails: [] }).append('sentEmails', [email]).commit()
+    },
+  }
+}
+
+export function sanityStock(sanity: SanityClient): Stock {
+  return {
+    async decrement(productId, qty) {
+      const doc = await sanity.patch(productId).setIfMissing({ stock: 0 }).dec({ stock: qty }).commit<{ stock: number }>()
+      return doc.stock
     },
   }
 }
