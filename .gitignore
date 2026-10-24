@@ -15,3 +15,5 @@ todos.json
 studio/node_modules
 studio/dist
 studio/.sanity
+test-results
+playwright-report
