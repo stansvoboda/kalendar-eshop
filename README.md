@@ -26,6 +26,16 @@ stripe listen --forward-to localhost:3000/api/stripe-webhook
 
 Test card: `4242 4242 4242 4242`, any future date, any CVC.
 
+### E2E test (Playwright)
+
+One happy path in `e2e/`: add a produkt → Doručení na adresu → pay with 4242… on Stripe's hosted Checkout → „Děkujeme“ shows the paid summary and the košík is empty. It is not part of `pnpm test`. It needs a filled `.env` (`STRIPE_SECRET_KEY` in test mode, `SANITY_PROJECT_ID`/`SANITY_DATASET`/`SANITY_WRITE_TOKEN` with at least one product in stock, `STRIPE_WEBHOOK_SECRET` from `stripe listen`):
+
+```bash
+npx playwright install chromium                                 # once
+stripe listen --forward-to localhost:3000/api/stripe-webhook    # separate terminal
+pnpm test:e2e                                                   # starts `pnpm dev` on :3000 if not running
+```
+
 Způsob doručení: `DELIVERY_PRICE_CZK` (Doručení na adresu, default 99) and `PICKUP_PLACE` (odběrní místo text) are read on the server; see `.env.example`.
 
 E-maily: after payment the kupující gets „Objednávka přijata“ and the obchodník „Nová objednávka“, sent via [Resend](https://resend.com). Set `RESEND_API_KEY`, `MERCHANT_EMAIL` and optionally `EMAIL_FROM` in `.env` (production: `wrangler secret put …`). Without a verified domain Resend only delivers to the account's own address. Templates are React Email components in `src/emails/`; new e-mails wrap their content in the shared `Layout`.
