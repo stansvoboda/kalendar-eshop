@@ -1,6 +1,9 @@
 import type Stripe from 'stripe'
 import { deliveryMethodSchema } from '#/lib/shop'
 
+// Missing stav (orders created before stav existed) means zaplacena.
+export type OrderStav = 'zaplacena' | 'vyrizena' | 'stornovana'
+
 // The dot in the _id keeps orders private even though the dataset is public.
 // Line items must be listed with `expand: ['data.price.product']` to carry the produkt id.
 export function orderFromSession(session: Stripe.Checkout.Session, lineItems: Stripe.LineItem[]) {
@@ -9,6 +12,7 @@ export function orderFromSession(session: Stripe.Checkout.Session, lineItems: St
     _id: `orders.${session.id}`,
     _type: 'order' as const,
     stripeSessionId: session.id,
+    stav: 'zaplacena' as OrderStav,
     createdAt: new Date(session.created * 1000).toISOString(),
     name: session.metadata?.name ?? session.customer_details?.name ?? '',
     email: session.customer_details?.email ?? session.customer_email ?? '',

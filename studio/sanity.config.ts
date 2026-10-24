@@ -15,13 +15,38 @@ const product = defineType({
   preview: { select: { title: 'name', media: 'image' } },
 })
 
-// Written by the Stripe webhook; read-only in Studio.
+const STAV_LIST = [
+  { title: 'Zaplacená', value: 'zaplacena' },
+  { title: 'Vyřízená', value: 'vyrizena' },
+  { title: 'Stornovaná', value: 'stornovana' },
+]
+
+// Stav: only Zaplacená (or missing) → Vyřízená by hand; Stornovaná comes only from a Stripe refund (ADR 0001).
+const stavField = defineField({
+  name: 'stav',
+  title: 'Stav objednávky',
+  type: 'string',
+  options: { list: STAV_LIST, layout: 'radio' },
+  readOnly: ({ value }) => value === 'vyrizena' || value === 'stornovana',
+  components: {
+    input: (props) =>
+      props.renderDefault({
+        ...props,
+        schemaType: {
+          ...props.schemaType,
+          options: { ...props.schemaType.options, list: STAV_LIST.filter((o) => o.value !== 'stornovana' || props.value === 'stornovana') },
+        },
+      }),
+  },
+})
+
+// Written by the Stripe webhook; read-only in Studio except stav.
 const order = defineType({
   name: 'order',
   title: 'Objednávka',
   type: 'document',
-  readOnly: true,
   fields: [
+    stavField,
     defineField({ name: 'createdAt', title: 'Vytvořeno', type: 'datetime' }),
     defineField({ name: 'name', title: 'Jméno', type: 'string' }),
     defineField({ name: 'email', title: 'E-mail', type: 'string' }),
@@ -69,7 +94,8 @@ const order = defineType({
       ],
     }),
     defineField({ name: 'stripeSessionId', title: 'Stripe session', type: 'string' }),
-  ],
+    defineField({ name: 'sentEmails', title: 'Odeslané e-maily', type: 'array', of: [{ type: 'string' }], hidden: true }),
+  ].map((field) => (field.name === 'stav' ? field : { ...field, readOnly: true })),
   orderings: [{ title: 'Nejnovější', name: 'createdAtDesc', by: [{ field: 'createdAt', direction: 'desc' }] }],
   preview: { select: { title: 'email', subtitle: 'createdAt' } },
 })

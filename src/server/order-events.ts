@@ -5,14 +5,20 @@ import { orderFromSession } from './orders'
 import type { Mailer } from './mailer'
 import { ObjednavkaPrijata } from '#/emails/objednavka-prijata'
 import { NovaObjednavka } from '#/emails/nova-objednavka'
+import { ObjednavkaVyrizena } from '#/emails/objednavka-vyrizena'
 
 // Zpracování událostí objednávky: receives already-verified events, does all side effects through ports.
 
 export type Order = ReturnType<typeof orderFromSession>
 
+// sentEmails: keys of kupující e-mails already sent for this objednávka ('vyrizeno', …), for idempotency on webhook retries.
+export type StoredOrder = Order & { sentEmails?: string[] }
+
 export interface OrderStore {
   /** Creates the objednávka; false when it already exists (repeated delivery). */
   createOrder(order: Order): Promise<boolean>
+  getOrder(orderId: string): Promise<StoredOrder | null>
+  recordSentEmail(orderId: string, email: string): Promise<void>
 }
 
 export interface Payments {
@@ -33,6 +39,13 @@ export function createOrderEvents({
   mailer: Mailer
   shop: ShopConfig
 }) {
+  // Sends unless the objednávka's record says it was sent. shortcut: two truly concurrent deliveries can both send; add an ifRevisionId check if that shows up.
+  async function sendOnce(order: StoredOrder, email: string, mail: Parameters<Mailer['send']>[0]) {
+    if (order.sentEmails?.includes(email)) return
+    await mailer.send(mail)
+    await store.recordSentEmail(order._id, email)
+  }
+
   return {
     async zaplaceno(session: Stripe.Checkout.Session) {
       const order = orderFromSession(session, await payments.lineItems(session.id))
@@ -49,6 +62,16 @@ export function createOrderEvents({
       }
       return { created }
     },
+
+    async vyrizeno(orderId: string) {
+      const order = await store.getOrder(orderId)
+      if (!order) return
+      await sendOnce(order, 'vyrizeno', {
+        to: order.email,
+        subject: 'Objednávka vyřízena',
+        react: createElement(ObjednavkaVyrizena, { order, pickupPlace: shop.pickupPlace, contact: shop.merchantEmail }),
+      })
+    },
   }
 }
 
@@ -63,6 +86,12 @@ export function sanityOrderStore(sanity: SanityClient): OrderStore {
         if ((err as { statusCode?: number }).statusCode === 409) return false
         throw err
       }
+    },
+    async getOrder(orderId) {
+      return sanity.getDocument<StoredOrder>(orderId).then((doc) => doc ?? null)
+    },
+    async recordSentEmail(orderId, email) {
+      await sanity.patch(orderId).setIfMissing({ sentEmails: [] }).append('sentEmails', [email]).commit()
     },
   }
 }

@@ -17,6 +17,7 @@
   "dependencies": {
     "@react-email/components": "^1.0.12",
     "@sanity/client": "^8.10.0",
+    "@sanity/webhook": "^4.0.4",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "0.10.13",
     "@tanstack/react-form": "1.33.5",

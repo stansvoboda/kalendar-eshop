@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DekujemeRouteImport } from './routes/dekujeme'
 import { Route as KosikRouteImport } from './routes/kosik'
+import { Route as ApiSanityWebhookRouteImport } from './routes/api/sanity-webhook'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as ProduktSlugRouteImport } from './routes/produkt.$slug'
 
@@ -30,6 +31,11 @@ const KosikRoute = KosikRouteImport.update({
   path: '/kosik',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSanityWebhookRoute = ApiSanityWebhookRouteImport.update({
+  id: '/api/sanity-webhook',
+  path: '/api/sanity-webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   id: '/api/stripe-webhook',
   path: '/api/stripe-webhook',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dekujeme': typeof DekujemeRoute
   '/kosik': typeof KosikRoute
+  '/api/sanity-webhook': typeof ApiSanityWebhookRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/produkt/$slug': typeof ProduktSlugRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dekujeme': typeof DekujemeRoute
   '/kosik': typeof KosikRoute
+  '/api/sanity-webhook': typeof ApiSanityWebhookRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/produkt/$slug': typeof ProduktSlugRoute
 }
@@ -60,20 +68,33 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dekujeme': typeof DekujemeRoute
   '/kosik': typeof KosikRoute
+  '/api/sanity-webhook': typeof ApiSanityWebhookRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/produkt/$slug': typeof ProduktSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/dekujeme' | '/kosik' | '/api/stripe-webhook' | '/produkt/$slug'
+    | '/'
+    | '/dekujeme'
+    | '/kosik'
+    | '/api/sanity-webhook'
+    | '/api/stripe-webhook'
+    | '/produkt/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dekujeme' | '/kosik' | '/api/stripe-webhook' | '/produkt/$slug'
+  to:
+    | '/'
+    | '/dekujeme'
+    | '/kosik'
+    | '/api/sanity-webhook'
+    | '/api/stripe-webhook'
+    | '/produkt/$slug'
   id:
     | '__root__'
     | '/'
     | '/dekujeme'
     | '/kosik'
+    | '/api/sanity-webhook'
     | '/api/stripe-webhook'
     | '/produkt/$slug'
   fileRoutesById: FileRoutesById
@@ -82,6 +103,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DekujemeRoute: typeof DekujemeRoute
   KosikRoute: typeof KosikRoute
+  ApiSanityWebhookRoute: typeof ApiSanityWebhookRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   ProduktSlugRoute: typeof ProduktSlugRoute
 }
@@ -109,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KosikRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sanity-webhook': {
+      id: '/api/sanity-webhook'
+      path: '/api/sanity-webhook'
+      fullPath: '/api/sanity-webhook'
+      preLoaderRoute: typeof ApiSanityWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/stripe-webhook': {
       id: '/api/stripe-webhook'
       path: '/api/stripe-webhook'
@@ -130,18 +159,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DekujemeRoute: DekujemeRoute,
   KosikRoute: KosikRoute,
+  ApiSanityWebhookRoute: ApiSanityWebhookRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   ProduktSlugRoute: ProduktSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

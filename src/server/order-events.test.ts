@@ -1,16 +1,23 @@
 import { expect, it } from 'vitest'
 import type Stripe from 'stripe'
 import { render } from '@react-email/components'
-import { createOrderEvents, type OrderStore, type Payments } from './order-events'
+import { createOrderEvents, type Order, type OrderStore, type Payments } from './order-events'
 import type { Mailer } from './mailer'
 
 function fakeStore() {
-  const docs = new Map<string, unknown>()
+  const docs = new Map<string, Order & { sentEmails?: string[] }>()
   const store: OrderStore = {
     async createOrder(order) {
       if (docs.has(order._id)) return false
       docs.set(order._id, order)
       return true
+    },
+    async getOrder(orderId) {
+      return docs.get(orderId) ?? null
+    },
+    async recordSentEmail(orderId, email) {
+      const doc = docs.get(orderId)!
+      doc.sentEmails = [...(doc.sentEmails ?? []), email]
     },
   }
   return { store, docs }
@@ -73,6 +80,7 @@ it('zaplaceno creates the objednávka', async () => {
       _id: 'orders.cs_test_1',
       name: 'Jan',
       total: 879,
+      stav: 'zaplacena',
       items: [{ _key: 'li_1', name: 'Kalendář A', qty: 2, subtotal: 780 }],
     }),
   ])
@@ -106,4 +114,42 @@ it('a repeated zaplaceno creates no duplicate objednávka and sends no e-mails a
 
   expect(docs.size).toBe(1)
   expect(sent).toHaveLength(2)
+})
+
+it('vyrizeno e-mails the kupující that the objednávka was sent to the doručovací adresa', async () => {
+  const { events, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vyrizeno('orders.cs_test_1')
+
+  expect(sent).toHaveLength(3)
+  const [, , vyrizena] = sent
+  expect(vyrizena.to).toBe('jan@example.cz')
+  expect(vyrizena.subject).toContain('Objednávka vyřízena')
+  for (const text of ['odeslali', 'Jan Novák', 'Dlouhá 5', '11000 Praha']) expect(vyrizena.text).toContain(text)
+})
+
+it('vyrizeno for Osobní odběr says the objednávka is ready for pickup at the odběrní místo', async () => {
+  const { events, sent } = setup()
+  await events.zaplaceno(odberSession)
+  await events.vyrizeno('orders.cs_test_1')
+
+  expect(sent[2].text).toContain('připravená k vyzvednutí')
+  expect(sent[2].text).toContain('Dílna, Masarykova 1, Brno')
+  expect(sent[2].text).not.toContain('odeslali')
+})
+
+it('a repeated vyrizeno sends the e-mail only once', async () => {
+  const { events, sent } = setup()
+  await events.zaplaceno(session)
+  await events.vyrizeno('orders.cs_test_1')
+  await events.vyrizeno('orders.cs_test_1')
+
+  expect(sent).toHaveLength(3)
+})
+
+it('vyrizeno for an unknown objednávka sends nothing', async () => {
+  const { events, sent } = setup()
+  await events.vyrizeno('orders.missing')
+
+  expect(sent).toHaveLength(0)
 })

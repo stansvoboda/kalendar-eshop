@@ -172,6 +172,9 @@ importers:
       '@sanity/client':
         specifier: ^8.10.0
         version: 8.10.0(vitest@5.0.5(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)))
+      '@sanity/webhook':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.3.3(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0))
@@ -1962,6 +1965,10 @@ packages:
   '@sanity/client@8.10.0':
     resolution: {integrity: sha512-GIhfkSa4n1p1pmjfSIej7WyeEMYK26YaGbFnr7ORjHaWJ0L/KPHv+dEHTMxkE+BY4XlvILuKMLm1wPbny0yYKA==}
     engines: {node: '>=22.12.0'}
+
+  '@sanity/webhook@4.0.4':
+    resolution: {integrity: sha512-c8LmzR5Wx93zJ10ohhp0XlmPrTNSFyvPcLbNY/sN45Wj5VOngz4FbBMbX9j64sSQLt+676U6OhiVfjs1yw3YCw==}
+    engines: {node: '>=20.0.0'}
 
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
@@ -4891,6 +4898,8 @@ snapshots:
       rxjs: 7.8.2
     transitivePeerDependencies:
       - vitest
+
+  '@sanity/webhook@4.0.4': {}
 
   '@selderee/plugin-htmlparser2@0.11.0':
     dependencies:

@@ -30,6 +30,13 @@ Způsob doručení: `DELIVERY_PRICE_CZK` (Doručení na adresu, default 99) and 
 
 E-maily: after payment the kupující gets „Objednávka přijata“ and the obchodník „Nová objednávka“, sent via [Resend](https://resend.com). Set `RESEND_API_KEY`, `MERCHANT_EMAIL` and optionally `EMAIL_FROM` in `.env` (production: `wrangler secret put …`). Without a verified domain Resend only delivers to the account's own address. Templates are React Email components in `src/emails/`; new e-mails wrap their content in the shared `Layout`.
 
+Stav objednávky: new orders are Zaplacená (missing stav = Zaplacená). In Studio the obchodník can only switch Zaplacená → Vyřízená; the kupující then gets „Objednávka vyřízena“ (sent to the address, or ready at the odběrní místo), at most once per objednávka. Set up a webhook in [sanity.io/manage](https://www.sanity.io/manage) → API → Webhooks:
+
+- URL: `https://<your domain>/api/sanity-webhook`, method POST, trigger on **Update**, dataset `production`, drafts off
+- Filter: `_type == "order" && stav == "vyrizena" && delta::changedAny(stav)`
+- Projection: `{_id, stav}`
+- Secret: any random string; put the same value into `SANITY_WEBHOOK_SECRET` (`.env`, production: `wrangler secret put SANITY_WEBHOOK_SECRET`). Requests with an invalid signature get 401.
+
 ## How it works
 
 Podrobně česky, včetně toho, co chybí do skutečného obchodu: [docs/jak-to-funguje.md](docs/jak-to-funguje.md)
