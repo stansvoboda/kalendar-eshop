@@ -8,6 +8,8 @@ export const productSchema = z.object({
   price: z.number().int().positive(),
   description: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  // kusy skladem; negative after a přeprodej
+  stock: z.number().int(),
 })
 export type Product = z.infer<typeof productSchema>
 
@@ -52,6 +54,11 @@ export function cartLines(items: CartItem[], products: Product[]) {
     const product = products.find((p) => p._id === item.id)
     return product ? [{ product, qty: item.qty, subtotal: product.price * item.qty }] : []
   })
+}
+
+// Lines with more kusů in the košík than skladem; the platební pokus must not be created while any exist.
+export function stockProblems<L extends { product: Product; qty: number }>(lines: L[]) {
+  return lines.filter((l) => l.qty > l.product.stock)
 }
 
 export function cartTotal(lines: { subtotal: number }[], method: DeliveryMethod, config: DeliveryConfig) {

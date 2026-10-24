@@ -2,11 +2,11 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@sanity/client'
 import Stripe from 'stripe'
-import { cartLines, cartSchema, checkoutSchema, deliveryMethodSchema, deliveryPrice, productSchema } from '#/lib/shop'
+import { cartLines, cartSchema, checkoutSchema, deliveryMethodSchema, deliveryPrice, productSchema, stockProblems } from '#/lib/shop'
 import type { DeliveryConfig } from '#/lib/shop'
 
 const PRODUCTS = `*[_type == "product" && defined(slug.current)] | order(name asc) {
-  _id, name, "slug": slug.current, price, "description": coalesce(description, null), "imageUrl": coalesce(image.asset->url, null)
+  _id, name, "slug": slug.current, price, "description": coalesce(description, null), "imageUrl": coalesce(image.asset->url, null), "stock": coalesce(stock, 0)
 }`
 
 // Env is read per request: on Workers it doesn't exist at module load.
@@ -41,6 +41,10 @@ export const createCheckout = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const lines = cartLines(data.items, await fetchProducts())
     if (!lines.length) throw new Error('Košík je prázdný')
+    // useCdn may lag a few seconds; the rare přeprodej that slips through is accepted (ADR 0002).
+    const problems = stockProblems(lines)
+    if (problems.length)
+      throw new Error(`Nedostatek kusů skladem: ${problems.map((l) => `${l.product.name} (skladem ${Math.max(l.product.stock, 0)})`).join(', ')}`)
 
     const config = deliveryConfig()
     const adresa = data.delivery === 'adresa'

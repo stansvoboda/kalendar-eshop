@@ -1,12 +1,13 @@
+import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { queryOptions, useSuspenseQuery } from '@tanstack/react-query'
+import { queryOptions, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
 import { useForm } from '@tanstack/react-form'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { cartStore, deliveryStore } from '#/lib/cart-store'
-import { cartLines, cartTotal, checkoutSchema, deliveryPrice, formatCzk, setQty } from '#/lib/shop'
+import { cartLines, cartTotal, checkoutSchema, deliveryPrice, formatCzk, setQty, stockProblems } from '#/lib/shop'
 import { createCheckout, getDeliveryConfig } from '#/server/shop'
 import { productsQuery } from './index'
 
@@ -26,13 +27,23 @@ function CartPage() {
   const delivery = useSelector(deliveryStore)
   const lines = cartLines(items, products)
   const total = cartTotal(lines, delivery, deliveryConfig)
+  const problems = stockProblems(lines)
+  const queryClient = useQueryClient()
+  const [checkoutError, setCheckoutError] = useState('')
 
   const form = useForm({
     defaultValues: { name: '', email: '' },
     validators: { onChange: checkoutSchema },
     onSubmit: async ({ value }) => {
-      const { url } = await createCheckout({ data: { ...value, items, delivery: deliveryStore.state } })
-      window.location.href = url
+      setCheckoutError('')
+      try {
+        const { url } = await createCheckout({ data: { ...value, items, delivery: deliveryStore.state } })
+        window.location.href = url
+      } catch (err) {
+        setCheckoutError((err as Error).message)
+        // Sklad may have changed since the katalog loaded; refetch so the problémové položky show.
+        await queryClient.invalidateQueries({ queryKey: productsQuery.queryKey })
+      }
     },
   })
 
@@ -43,7 +54,14 @@ function CartPage() {
       <ul className="divide-y">
         {lines.map(({ product, qty, subtotal }) => (
           <li key={product._id} className="flex items-center justify-between gap-4 py-3">
-            <span className="flex-1">{product.name}</span>
+            <span className="flex-1">
+              {product.name}
+              {problems.some((l) => l.product._id === product._id) && (
+                <span className="block text-sm text-destructive">
+                  {product.stock > 0 ? `Skladem jen ${product.stock} ks` : 'Vyprodáno'}
+                </span>
+              )}
+            </span>
             <Input
               type="number"
               min={0}
@@ -119,11 +137,16 @@ function CartPage() {
         ))}
         <form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
           {([canSubmit, isSubmitting]) => (
-            <Button type="submit" disabled={!canSubmit || isSubmitting}>
+            <Button type="submit" disabled={!canSubmit || isSubmitting || problems.length > 0}>
               {isSubmitting ? 'Přesměrovávám…' : 'Zaplatit'}
             </Button>
           )}
         </form.Subscribe>
+        {checkoutError && (
+          <p role="alert" className="text-sm text-destructive">
+            {checkoutError}
+          </p>
+        )}
         <p className="text-sm text-muted-foreground">Testovací režim: karta 4242 4242 4242 4242, libovolné datum a CVC.</p>
       </form>
     </div>
