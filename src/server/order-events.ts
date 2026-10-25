@@ -13,7 +13,7 @@ import { VraceniPenez } from '#/emails/vraceni-penez'
 
 // Zpracování událostí objednávky: receives already-verified events, does all side effects through ports.
 
-// sentEmails: keys of steps already done for this objednávka (e-mails like 'vyrizeno', odečty like 'sklad:<productId>:<left>'),
+// sentEmails: keys of steps already done for this objednávka (e-mails like 'vyrizeno', odečty like 'sklad:<productId>:<left>' or 'sklad:<productId>:smazan'),
 // for idempotency on webhook retries. Named before it held odečty; kept so existing documents still work.
 export type StoredOrder = Order & { sentEmails?: string[] }
 
@@ -26,8 +26,11 @@ export interface OrderStore {
 }
 
 export interface Stock {
-  /** Atomically subtracts kusy skladem; returns the new count (negative = přeprodej). */
-  decrement(productId: string, qty: number): Promise<number>
+  /**
+   * Subtracts kusy skladem and records the odečet as 'sklad:<productId>:<left>' on the objednávka in one atomic write
+   * (left < 0 = přeprodej; 'smazan' for a product deleted from the katalog). Throws when either changed meanwhile.
+   */
+  decrement(orderId: string, productId: string, qty: number): Promise<void>
 }
 
 export interface Payments {
@@ -68,11 +71,8 @@ export function createOrderEvents({
       const order = (await store.getOrder(fresh._id))!
       // Kusy first: a failed e-mail must not leave them un-subtracted. The key keeps the new count for the přeprodej upozornění.
       for (const item of order.items) {
-        if (!item.productId) continue
-        const prefix = `sklad:${item.productId}:`
-        if (order.sentEmails?.some((k) => k.startsWith(prefix))) continue
-        const left = await stock.decrement(item.productId, item.qty)
-        await store.recordSentEmail(order._id, prefix + left)
+        if (!item.productId || order.sentEmails?.some((k) => k.startsWith(`sklad:${item.productId}:`))) continue
+        await stock.decrement(order._id, item.productId, item.qty)
       }
       const done = (await store.getOrder(order._id))!
       const oversold = order.items.flatMap((item) => {
@@ -159,9 +159,21 @@ export function sanityOrderStore(sanity: SanityClient): OrderStore {
 
 export function sanityStock(sanity: SanityClient): Stock {
   return {
-    async decrement(productId, qty) {
-      const doc = await sanity.patch(productId).setIfMissing({ stock: 0 }).dec({ stock: qty }).commit<{ stock: number }>()
-      return doc.stock
+    // Both revisions are checked, so a concurrent delivery or sale makes this throw (409) and Stripe retries the webhook.
+    async decrement(orderId, productId, qty) {
+      const [order, product] = await Promise.all([
+        sanity.getDocument<StoredOrder>(orderId),
+        sanity.getDocument<{ stock?: number }>(productId),
+      ])
+      if (!order) throw new Error(`Objednávka ${orderId} not found`)
+      const prefix = `sklad:${productId}:`
+      if (order.sentEmails?.some((k) => k.startsWith(prefix))) return
+      const left = product ? (product.stock ?? 0) - qty : 'smazan'
+      const tx = sanity
+        .transaction()
+        .patch(orderId, (p) => p.ifRevisionId(order._rev).setIfMissing({ sentEmails: [] }).append('sentEmails', [prefix + left]))
+      if (product) tx.patch(productId, (p) => p.ifRevisionId(product._rev).set({ stock: left }))
+      await tx.commit()
     },
   }
 }
