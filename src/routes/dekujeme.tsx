@@ -33,6 +33,7 @@ function ThankYou() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-center text-3xl font-bold">Děkujeme za objednávku!</h1>
+      {!order.paid && <p className="text-center">Platba se zpracovává, potvrzení pošleme e-mailem.</p>}
       <ul className="divide-y">
         {order.items.map((item) => (
           <li key={item._key} className="flex justify-between gap-4 py-3">

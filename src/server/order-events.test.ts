@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest'
 import type Stripe from 'stripe'
 import { render } from '@react-email/components'
-import { createOrderEvents, type OrderStore, type Payments, type Stock } from './order-events'
+import type { SanityClient } from '@sanity/client'
+import { createOrderEvents, sanityStock, type OrderStore, type Payments, type Stock } from './order-events'
 import type { Order } from './orders'
 import type { Mailer } from './mailer'
 
@@ -27,12 +28,15 @@ function fakeStore() {
   return { store, docs }
 }
 
-function fakeStock(initial: Record<string, number>) {
+// A product missing from `initial` is one deleted from the katalog.
+function fakeStock(docs: Map<string, Order & { sentEmails?: string[] }>, initial: Record<string, number>) {
   const levels = new Map(Object.entries(initial))
   const stock: Stock = {
-    async decrement(productId, qty) {
-      levels.set(productId, (levels.get(productId) ?? 0) - qty)
-      return levels.get(productId)!
+    async decrement(orderId, productId, qty) {
+      const left = levels.has(productId) ? levels.get(productId)! - qty : 'smazan'
+      if (typeof left === 'number') levels.set(productId, left)
+      const doc = docs.get(orderId)!
+      doc.sentEmails = [...(doc.sentEmails ?? []), `sklad:${productId}:${left}`]
     },
   }
   return { stock, levels }
@@ -90,10 +94,10 @@ const odberSession = {
   collected_information: null,
 } as unknown as Stripe.Checkout.Session
 
-function setup({ skladem = 10, failOnce = undefined as string | undefined } = {}) {
+function setup({ skladem = 10 as number | null, failOnce = undefined as string | undefined } = {}) {
   const { store, docs } = fakeStore()
   const { mailer, sent } = fakeMailer(failOnce)
-  const { stock, levels } = fakeStock({ a: skladem })
+  const { stock, levels } = fakeStock(docs, skladem === null ? {} : { a: skladem })
   return { docs, sent, levels, events: createOrderEvents({ store, payments, mailer, shop, stock }) }
 }
 
@@ -215,6 +219,14 @@ it('no přeprodej upozornění when the last kusy sell out exactly', async () =>
   expect(sent.map((m) => m.subject).join()).not.toContain('Přeprodej')
 })
 
+it('a product smazaný from the katalog does not block the objednávka e-mails', async () => {
+  const { events, sent } = setup({ skladem: null })
+  await events.zaplaceno(session)
+  await events.zaplaceno(session)
+
+  expect(sent.map((m) => m.subject.split(':')[0])).toEqual(['Objednávka přijata', 'Nová objednávka'])
+})
+
 // A charge for `session` (87 900 haléřů) after vrácení of `amountRefunded`; the last refund is re_<amountRefunded>.
 function refundedCharge(amountRefunded: number, lastRefund = amountRefunded) {
   return {
@@ -294,4 +306,56 @@ it('vrácení for a charge without an objednávka sends nothing', async () => {
   await events.vracenyPenize({ ...refundedCharge(87_900), payment_intent: 'pi_other' } as Stripe.Charge)
 
   expect(sent).toHaveLength(0)
+})
+
+// Sanity whose commits apply the patches' set/append; the first `conflicts` commits fail with 409, as when a concurrent sale got there first.
+function fakeSanity(docs: Record<string, Record<string, unknown>>, conflicts: number) {
+  const sanity = {
+    async getDocument(id: string) {
+      return docs[id] && structuredClone(docs[id])
+    },
+    transaction() {
+      const ops: (() => void)[] = []
+      const tx = {
+        patch(id: string, fn: (p: unknown) => unknown) {
+          const p = {
+            ifRevisionId: () => p,
+            setIfMissing: () => p,
+            append: (key: string, items: unknown[]) => {
+              ops.push(() => (docs[id][key] = [...((docs[id][key] as unknown[] | undefined) ?? []), ...items]))
+              return p
+            },
+            set: (attrs: Record<string, unknown>) => {
+              ops.push(() => Object.assign(docs[id], attrs))
+              return p
+            },
+          }
+          fn(p)
+          return tx
+        },
+        async commit() {
+          if (conflicts-- > 0) {
+            docs.a.stock = (docs.a.stock as number) - 1
+            throw Object.assign(new Error('Conflict'), { statusCode: 409 })
+          }
+          ops.forEach((op) => op())
+        },
+      }
+      return tx
+    },
+  }
+  return sanity as unknown as SanityClient
+}
+
+it('odečet kusů retries when a concurrent sale changed the product meanwhile', async () => {
+  const docs = { o: { _id: 'o', _rev: '1' }, a: { _id: 'a', _rev: '1', stock: 10 } }
+  await sanityStock(fakeSanity(docs, 2)).decrement('o', 'a', 3)
+
+  expect(docs.a.stock).toBe(5)
+  expect(docs.o).toMatchObject({ sentEmails: ['sklad:a:5'] })
+})
+
+it('odečet kusů gives up after repeated conflicts, so Stripe retries the webhook', async () => {
+  const docs = { o: { _id: 'o', _rev: '1' }, a: { _id: 'a', _rev: '1', stock: 10 } }
+  await expect(sanityStock(fakeSanity(docs, 3)).decrement('o', 'a', 3)).rejects.toMatchObject({ statusCode: 409 })
 })

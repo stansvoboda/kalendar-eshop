@@ -289,7 +289,7 @@ if [[ -n "$existing" ]]; then
   note "Webhook pro $WEBHOOK_URL už existuje, přeskakuju (secret už byl nahrán dřív)."
 elif confirm "Vytvořit Stripe webhook pro $WEBHOOK_URL?"; then
   resp=$(curl -sS -u "$STRIPE_SECRET_KEY:" https://api.stripe.com/v1/webhook_endpoints \
-    -d url="$WEBHOOK_URL" -d "enabled_events[]=checkout.session.completed" || true)
+    -d url="$WEBHOOK_URL" -d "enabled_events[]=checkout.session.completed" -d "enabled_events[]=checkout.session.async_payment_succeeded" || true)
   WEBHOOK_SECRET=$(printf '%s' "$resp" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0)).secret||"")}catch{}')
   if [[ "$WEBHOOK_SECRET" == whsec_* ]]; then
     printf '%s' "$WEBHOOK_SECRET" | pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET

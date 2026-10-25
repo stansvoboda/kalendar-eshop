@@ -21,6 +21,7 @@ function fakeStripe(session: Stripe.Checkout.Session | Error) {
 const paid = {
   id: 'cs_test_1',
   created: 1_700_000_000,
+  status: 'complete',
   payment_status: 'paid',
   metadata: { name: 'Jan', delivery: 'adresa' },
   customer_details: { email: 'jan@example.cz' },
@@ -34,11 +35,18 @@ it('returns the summary of a paid Checkout Session without personal data', async
     delivery: 'adresa',
     deliveryPrice: 99,
     total: 879,
+    paid: true,
   })
 })
 
+it('a completed session with a delayed payment returns the summary marked not yet paid', async () => {
+  const pending = { ...paid, status: 'complete', payment_status: 'unpaid' } as Stripe.Checkout.Session
+  expect(await paidOrderSummary(fakeStripe(pending), 'cs_test_1')).toMatchObject({ total: 879, paid: false })
+})
+
 it('returns null for an unpaid platební pokus', async () => {
-  expect(await paidOrderSummary(fakeStripe({ ...paid, payment_status: 'unpaid' }), 'cs_test_1')).toBeNull()
+  expect(await paidOrderSummary(fakeStripe({ ...paid, status: 'open', payment_status: 'unpaid' }), 'cs_test_1')).toBeNull()
+  expect(await paidOrderSummary(fakeStripe({ ...paid, status: 'expired', payment_status: 'unpaid' }), 'cs_test_1')).toBeNull()
 })
 
 it('returns null for an unknown session id', async () => {
