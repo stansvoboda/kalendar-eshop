@@ -20,7 +20,11 @@ export const Route = createFileRoute('/api/stripe-webhook')({
 
         const events = orderEventsFromEnv(stripe)
 
-        if (event.type === 'checkout.session.completed' && event.data.object.payment_status === 'paid') {
+        // Delayed methods (bank transfer) complete 'unpaid' and arrive later as async_payment_succeeded.
+        if (
+          (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') &&
+          event.data.object.payment_status === 'paid'
+        ) {
           await events.zaplaceno(event.data.object)
         }
         if (event.type === 'charge.refunded') {

@@ -22,7 +22,7 @@ Orders: Stripe sends `checkout.session.completed` to `/api/stripe-webhook`, whic
 
 ```bash
 set -a; . ./.env; set +a   # STRIPE_SECRET_KEY: stripe login may pick another account/sandbox
-stripe listen --api-key "$STRIPE_SECRET_KEY" --events checkout.session.completed,charge.refunded --forward-to localhost:3000/api/stripe-webhook
+stripe listen --api-key "$STRIPE_SECRET_KEY" --events checkout.session.completed,checkout.session.async_payment_succeeded,charge.refunded --forward-to localhost:3000/api/stripe-webhook
 ```
 
 Test card: `4242 4242 4242 4242`, any future date, any CVC.
