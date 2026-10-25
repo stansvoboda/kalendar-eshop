@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { createClient } from '@sanity/client'
 import Stripe from 'stripe'
-import { orderFromSession } from '#/server/orders'
+import { orderEventsFromEnv } from '#/server/order-events'
 
 export const Route = createFileRoute('/api/stripe-webhook')({
   server: {
@@ -19,18 +18,14 @@ export const Route = createFileRoute('/api/stripe-webhook')({
           return new Response('Invalid signature', { status: 400 })
         }
 
+        const events = orderEventsFromEnv(stripe)
+
         if (event.type === 'checkout.session.completed' && event.data.object.payment_status === 'paid') {
-          const session = event.data.object
-          const { data: lineItems } = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 })
-          const sanity = createClient({
-            projectId: process.env.SANITY_PROJECT_ID,
-            dataset: process.env.SANITY_DATASET ?? 'production',
-            apiVersion: '2025-01-01',
-            token: process.env.SANITY_WRITE_TOKEN,
-            useCdn: false,
-          })
-          // Idempotent: Stripe retries deliveries, the session id is the order id.
-          await sanity.createIfNotExists(orderFromSession(session, lineItems))
+          await events.zaplaceno(event.data.object)
+        }
+        if (event.type === 'charge.refunded') {
+          // Re-fetched: webhook charges don't include their refunds.
+          await events.vracenyPenize(await stripe.charges.retrieve(event.data.object.id, { expand: ['refunds'] }))
         }
         return new Response('ok')
       },

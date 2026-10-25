@@ -2,20 +2,28 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@sanity/client'
 import Stripe from 'stripe'
-import { cartLines, cartSchema, checkoutSchema, productSchema } from '#/lib/shop'
+import { z } from 'zod'
+import { cartLines, cartSchema, checkoutSchema, deliveryLabel, deliveryMethodSchema, deliveryPrice, productSchema, publicProduct, stockProblems } from '#/lib/shop'
+import type { DeliveryConfig } from '#/lib/shop'
+import { paidOrderSummary } from './thank-you'
 
 const PRODUCTS = `*[_type == "product" && defined(slug.current)] | order(name asc) {
-  _id, name, "slug": slug.current, price, "description": coalesce(description, null), "imageUrl": coalesce(image.asset->url, null)
+  _id, name, "slug": slug.current, price, "description": coalesce(description, null), "imageUrl": coalesce(image.asset->url, null), "stock": coalesce(stock, 0)
 }`
 
 // Env is read per request: on Workers it doesn't exist at module load.
-async function fetchProducts() {
-  const sanity = createClient({
+// Writes need the token and fresh data; reads go through the CDN.
+export function sanityClient({ write = false } = {}) {
+  return createClient({
     projectId: process.env.SANITY_PROJECT_ID,
     dataset: process.env.SANITY_DATASET ?? 'production',
     apiVersion: '2025-01-01',
-    useCdn: true,
+    ...(write ? { token: process.env.SANITY_WRITE_TOKEN, useCdn: false } : { useCdn: true }),
   })
+}
+
+async function fetchProducts() {
+  const sanity = sanityClient()
   // Skip products with bad data (e.g. price 0) instead of breaking the whole shop.
   const rows: unknown[] = await sanity.fetch(PRODUCTS)
   return rows.flatMap((row) => {
@@ -24,30 +32,68 @@ async function fetchProducts() {
   })
 }
 
-export const getProducts = createServerFn().handler(fetchProducts)
+export const getProducts = createServerFn().handler(async () => (await fetchProducts()).map(publicProduct))
+
+// Košík položky that are vyprodané or exceed kusy skladem, without revealing the counts.
+export const getStockProblems = createServerFn({ method: 'POST' })
+  .validator(cartSchema)
+  .handler(async ({ data }) => stockProblems(cartLines(data, await fetchProducts())).map((l) => l.product._id))
+
+export function deliveryConfig(): DeliveryConfig {
+  return {
+    price: Number(process.env.DELIVERY_PRICE_CZK || 99),
+    pickupPlace: process.env.PICKUP_PLACE || 'Osobní odběr po domluvě e-mailem',
+  }
+}
+
+export const getDeliveryConfig = createServerFn().handler(deliveryConfig)
 
 export const createCheckout = createServerFn({ method: 'POST' })
-  .validator(checkoutSchema.extend({ items: cartSchema }))
+  .validator(checkoutSchema.extend({ items: cartSchema, delivery: deliveryMethodSchema }))
   .handler(async ({ data }) => {
     const lines = cartLines(data.items, await fetchProducts())
     if (!lines.length) throw new Error('Košík je prázdný')
+    // useCdn may lag a few seconds; the rare přeprodej that slips through is accepted (ADR 0002).
+    const problems = stockProblems(lines)
+    if (problems.length)
+      throw new Error(`Nedostatek kusů skladem: ${problems.map((l) => l.product.name).join(', ')}`)
 
+    const config = deliveryConfig()
+    const adresa = data.delivery === 'adresa'
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
     const origin = new URL(getRequest().url).origin
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: data.email,
-      metadata: { name: data.name },
+      metadata: { name: data.name, delivery: data.delivery },
       line_items: lines.map(({ product, qty }) => ({
         quantity: qty,
         price_data: {
           currency: 'czk',
           unit_amount: product.price * 100,
-          product_data: { name: product.name, ...(product.imageUrl && { images: [product.imageUrl] }) },
+          product_data: {
+            name: product.name,
+            metadata: { productId: product._id },
+            ...(product.imageUrl && { images: [product.imageUrl] }),
+          },
         },
       })),
-      success_url: `${origin}/dekujeme`,
+      ...(adresa && { shipping_address_collection: { allowed_countries: ['CZ'] } }),
+      shipping_options: [
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: deliveryPrice(data.delivery, config) * 100, currency: 'czk' },
+            display_name: adresa ? deliveryLabel(data.delivery) : `${deliveryLabel(data.delivery)}: ${config.pickupPlace}`,
+          },
+        },
+      ],
+      success_url: `${origin}/dekujeme?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/kosik`,
     })
     return { url: session.url! }
   })
+
+export const getPaidOrder = createServerFn()
+  .validator(z.object({ sessionId: z.string() }))
+  .handler(({ data }) => paidOrderSummary(new Stripe(process.env.STRIPE_SECRET_KEY!), data.sessionId))

@@ -1,5 +1,6 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { Button } from '#/components/ui/button'
+import { Badge } from '#/components/ui/badge'
 import { cartStore } from '#/lib/cart-store'
 import { addToCart, formatCzk } from '#/lib/shop'
 import { productsQuery } from './index'
@@ -24,7 +25,12 @@ function ProductPage() {
         <h1 className="text-3xl font-bold">{p.name}</h1>
         <p className="text-2xl font-semibold">{formatCzk(p.price)}</p>
         {p.description && <p className="whitespace-pre-line text-muted-foreground">{p.description}</p>}
-        <Button onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>Do košíku</Button>
+        <Badge variant={p.inStock ? 'secondary' : 'outline'}>{p.inStock ? 'Skladem' : 'Vyprodáno'}</Badge>
+        <div>
+          <Button disabled={!p.inStock} onClick={() => cartStore.setState((items) => addToCart(items, p._id))}>
+            Do košíku
+          </Button>
+        </div>
       </div>
     </div>
   )
