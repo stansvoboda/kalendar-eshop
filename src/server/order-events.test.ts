@@ -27,12 +27,15 @@ function fakeStore() {
   return { store, docs }
 }
 
-function fakeStock(initial: Record<string, number>) {
+// A product missing from `initial` is one deleted from the katalog.
+function fakeStock(docs: Map<string, Order & { sentEmails?: string[] }>, initial: Record<string, number>) {
   const levels = new Map(Object.entries(initial))
   const stock: Stock = {
-    async decrement(productId, qty) {
-      levels.set(productId, (levels.get(productId) ?? 0) - qty)
-      return levels.get(productId)!
+    async decrement(orderId, productId, qty) {
+      const left = levels.has(productId) ? levels.get(productId)! - qty : 'smazan'
+      if (typeof left === 'number') levels.set(productId, left)
+      const doc = docs.get(orderId)!
+      doc.sentEmails = [...(doc.sentEmails ?? []), `sklad:${productId}:${left}`]
     },
   }
   return { stock, levels }
@@ -90,10 +93,10 @@ const odberSession = {
   collected_information: null,
 } as unknown as Stripe.Checkout.Session
 
-function setup({ skladem = 10, failOnce = undefined as string | undefined } = {}) {
+function setup({ skladem = 10 as number | null, failOnce = undefined as string | undefined } = {}) {
   const { store, docs } = fakeStore()
   const { mailer, sent } = fakeMailer(failOnce)
-  const { stock, levels } = fakeStock({ a: skladem })
+  const { stock, levels } = fakeStock(docs, skladem === null ? {} : { a: skladem })
   return { docs, sent, levels, events: createOrderEvents({ store, payments, mailer, shop, stock }) }
 }
 
@@ -213,6 +216,14 @@ it('no přeprodej upozornění when the last kusy sell out exactly', async () =>
   await events.zaplaceno(session)
 
   expect(sent.map((m) => m.subject).join()).not.toContain('Přeprodej')
+})
+
+it('a product smazaný from the katalog does not block the objednávka e-mails', async () => {
+  const { events, sent } = setup({ skladem: null })
+  await events.zaplaceno(session)
+  await events.zaplaceno(session)
+
+  expect(sent.map((m) => m.subject.split(':')[0])).toEqual(['Objednávka přijata', 'Nová objednávka'])
 })
 
 // A charge for `session` (87 900 haléřů) after vrácení of `amountRefunded`; the last refund is re_<amountRefunded>.
