@@ -21,7 +21,8 @@ pnpm run deploy
 Orders: Stripe sends `checkout.session.completed` to `/api/stripe-webhook`, which saves an `order` document in Sanity (visible in Studio). To test it locally, run [Stripe CLI](https://docs.stripe.com/stripe-cli) and put the printed `whsec_…` into `.env` as `STRIPE_WEBHOOK_SECRET`:
 
 ```bash
-stripe listen --forward-to localhost:3000/api/stripe-webhook
+set -a; . ./.env; set +a   # STRIPE_SECRET_KEY: stripe login may pick another account/sandbox
+stripe listen --api-key "$STRIPE_SECRET_KEY" --events checkout.session.completed,charge.refunded --forward-to localhost:3000/api/stripe-webhook
 ```
 
 Test card: `4242 4242 4242 4242`, any future date, any CVC.
@@ -32,7 +33,7 @@ One happy path in `e2e/`: add a produkt → Doručení na adresu → pay with 42
 
 ```bash
 npx playwright install chromium                                 # once
-stripe listen --forward-to localhost:3000/api/stripe-webhook    # separate terminal
+stripe listen …                                                 # separate terminal, as above; keep `pnpm dev` running so the webhook finishes
 pnpm test:e2e                                                   # starts `pnpm dev` on :3000 if not running
 ```
 
