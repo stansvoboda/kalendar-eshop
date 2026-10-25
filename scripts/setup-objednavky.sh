@@ -233,8 +233,8 @@ if command -v stripe >/dev/null 2>&1; then
 fi
 pause
 
-stage "Stripe: událost charge.refunded"
-say "Storno funguje přes vrácení peněz, webhook proto musí dostávat i charge.refunded."
+stage "Stripe: události charge.refunded a checkout.session.async_payment_succeeded"
+say "Storno funguje přes vrácení peněz a platby převodem se potvrzují později, webhook proto musí dostávat i charge.refunded a checkout.session.async_payment_succeeded."
 WEBHOOK_URL="$SHOP_URL/api/stripe-webhook"
 endpoint=$(curl -sS -u "$STRIPE_SECRET_KEY:" "https://api.stripe.com/v1/webhook_endpoints?limit=100" \
   | node -e 'const d=JSON.parse(require("fs").readFileSync(0));const e=(d.data||[]).find(e=>e.url===process.argv[1]);process.stdout.write(e?e.id+" "+e.enabled_events.join(","):"")' "$WEBHOOK_URL" || true)
@@ -242,13 +242,13 @@ if [[ -z "$endpoint" ]]; then
   warn "Webhook pro $WEBHOOK_URL ve Stripe (test režim) nenalezen."
   SKIPPED+=("Stripe: Developers → Webhooks → $WEBHOOK_URL, přidat události charge.refunded a checkout.session.async_payment_succeeded")
 elif [[ "$endpoint" == *charge.refunded* && "$endpoint" == *async_payment_succeeded* ]]; then
-  note "charge.refunded i async_payment_succeeded už jsou zapnuté, přeskakuju."
+  note "charge.refunded i checkout.session.async_payment_succeeded už jsou zapnuté, přeskakuju."
 elif confirm "Přidat charge.refunded a async_payment_succeeded na webhook $WEBHOOK_URL?"; then
   curl -sS -u "$STRIPE_SECRET_KEY:" "https://api.stripe.com/v1/webhook_endpoints/${endpoint%% *}" \
     -d "enabled_events[]=checkout.session.completed" -d "enabled_events[]=checkout.session.async_payment_succeeded" -d "enabled_events[]=charge.refunded" >/dev/null \
-    && printf '  %s✓ set%s charge.refunded na webhooku\n' "$GREEN" "$RESET"
+    && printf '  %s✓ set%s charge.refunded a checkout.session.async_payment_succeeded na webhooku\n' "$GREEN" "$RESET"
 else
-  SKIPPED+=("Stripe: přidat charge.refunded na webhook $WEBHOOK_URL")
+  SKIPPED+=("Stripe: přidat charge.refunded a checkout.session.async_payment_succeeded na webhook $WEBHOOK_URL")
 fi
 pause
 

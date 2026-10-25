@@ -16,6 +16,8 @@ describe('cart', () => {
   it('caps quantity at 99 and removes at 0', () => {
     expect(setQty([{ id: 'a', qty: 1 }], 'a', 500)).toEqual([{ id: 'a', qty: 99 }])
     expect(setQty([{ id: 'a', qty: 1 }], 'a', 0)).toEqual([])
+    expect(setQty([{ id: 'a', qty: 1 }], 'a', 2.5)).toEqual([{ id: 'a', qty: 2 }])
+    expect(setQty([{ id: 'a', qty: 1 }], 'a', 0.5)).toEqual([])
   })
 
   it('prices lines from products and drops unknown ids', () => {

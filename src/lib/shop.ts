@@ -53,6 +53,7 @@ export function addToCart(items: CartItem[], id: string, qty = 1): CartItem[] {
 }
 
 export function setQty(items: CartItem[], id: string, qty: number): CartItem[] {
+  qty = Math.floor(qty)
   if (qty <= 0) return items.filter((i) => i.id !== id)
   return items.map((i) => (i.id === id ? { ...i, qty: Math.min(qty, 99) } : i))
 }

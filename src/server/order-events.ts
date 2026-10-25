@@ -28,7 +28,7 @@ export interface OrderStore {
 export interface Stock {
   /**
    * Subtracts kusy skladem and records the odečet as 'sklad:<productId>:<left>' on the objednávka in one atomic write
-   * (left < 0 = přeprodej; 'smazan' for a product deleted from the katalog). Throws when either changed meanwhile.
+   * (left < 0 = přeprodej; 'smazan' for a product deleted from the katalog). Throws when either keeps changing meanwhile.
    */
   decrement(orderId: string, productId: string, qty: number): Promise<void>
 }
@@ -158,22 +158,33 @@ export function sanityOrderStore(sanity: SanityClient): OrderStore {
 }
 
 export function sanityStock(sanity: SanityClient): Stock {
+  // Both revisions are checked, so a concurrent delivery, sale or Studio edit makes the commit fail with 409.
+  async function decrementOnce(orderId: string, productId: string, qty: number) {
+    const [order, product] = await Promise.all([
+      sanity.getDocument<StoredOrder>(orderId),
+      sanity.getDocument<{ stock?: number }>(productId),
+    ])
+    if (!order) throw new Error(`Objednávka ${orderId} not found`)
+    const prefix = `sklad:${productId}:`
+    if (order.sentEmails?.some((k) => k.startsWith(prefix))) return
+    const left = product ? (product.stock ?? 0) - qty : 'smazan'
+    const tx = sanity
+      .transaction()
+      .patch(orderId, (p) => p.ifRevisionId(order._rev).setIfMissing({ sentEmails: [] }).append('sentEmails', [prefix + left]))
+    if (product) tx.patch(productId, (p) => p.ifRevisionId(product._rev).set({ stock: left }))
+    await tx.commit()
+  }
+
   return {
-    // Both revisions are checked, so a concurrent delivery or sale makes this throw (409) and Stripe retries the webhook.
+    // Re-reads and tries again on 409: Stripe's webhook retry takes minutes to hours, with no e-mails meanwhile.
     async decrement(orderId, productId, qty) {
-      const [order, product] = await Promise.all([
-        sanity.getDocument<StoredOrder>(orderId),
-        sanity.getDocument<{ stock?: number }>(productId),
-      ])
-      if (!order) throw new Error(`Objednávka ${orderId} not found`)
-      const prefix = `sklad:${productId}:`
-      if (order.sentEmails?.some((k) => k.startsWith(prefix))) return
-      const left = product ? (product.stock ?? 0) - qty : 'smazan'
-      const tx = sanity
-        .transaction()
-        .patch(orderId, (p) => p.ifRevisionId(order._rev).setIfMissing({ sentEmails: [] }).append('sentEmails', [prefix + left]))
-      if (product) tx.patch(productId, (p) => p.ifRevisionId(product._rev).set({ stock: left }))
-      await tx.commit()
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await decrementOnce(orderId, productId, qty)
+        } catch (err) {
+          if ((err as { statusCode?: number }).statusCode !== 409 || attempt === 3) throw err
+        }
+      }
     },
   }
 }
