@@ -10,4 +10,8 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
+      - name: Route tree matches the Start plugin output
+        run: |
+          pnpm exec vite build
+          git diff --exit-code src/routeTree.gen.ts
       - run: pnpm test
