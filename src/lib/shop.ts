@@ -28,6 +28,8 @@ export type CheckoutInput = z.infer<typeof checkoutSchema>
 export const cartSchema = z
   .array(z.object({ id: z.string(), qty: z.number().int().min(1).max(99) }))
   .min(1, 'Košík je prázdný')
+  // stockProblems checks per line, so a product split over lines would dodge it
+  .refine((items) => new Set(items.map((i) => i.id)).size === items.length, 'Duplicitní položka v košíku')
 
 // Způsob doručení: 'adresa' = Doručení na adresu, 'odber' = Osobní odběr.
 export const deliveryMethodSchema = z.enum(['adresa', 'odber'])
