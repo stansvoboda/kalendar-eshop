@@ -75,7 +75,11 @@ function CartPage() {
               value={qty}
               aria-label={`Počet: ${product.name}`}
               className="w-20"
-              onChange={(e) => cartStore.setState((all) => setQty(all, product._id, Number(e.target.value)))}
+              onChange={(e) => {
+                // Number('') is 0, which would remove the položka while the user is retyping
+                if (e.target.value === '') return
+                cartStore.setState((all) => setQty(all, product._id, Number(e.target.value)))
+              }}
             />
             <span className="w-24 text-right">{formatCzk(subtotal)}</span>
           </li>

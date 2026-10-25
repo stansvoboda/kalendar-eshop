@@ -68,6 +68,8 @@ describe('validation', () => {
 
   it('rejects empty cart and bad email', () => {
     expect(cartSchema.safeParse([]).success).toBe(false)
+    // a crafted košík splitting one product into lines would slip past the stock check
+    expect(cartSchema.safeParse([{ id: 'a', qty: 3 }, { id: 'a', qty: 3 }]).success).toBe(false)
     expect(checkoutSchema.safeParse({ name: 'Jan', email: 'nope' }).success).toBe(false)
     expect(checkoutSchema.safeParse({ name: 'Jan', email: 'jan@example.cz' }).success).toBe(true)
   })
