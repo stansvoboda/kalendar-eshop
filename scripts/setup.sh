@@ -304,7 +304,7 @@ fi
 pause
 
 stage "GitHub: repozitář pro portfolio"
-say "Vytvořím veřejný GitHub repozitář a pushnu kód. CI tam pustí typecheck a testy."
+say "Vytvořím veřejný GitHub repozitář a pushnu kód. CI tam pustí build s kontrolou route tree, typecheck a testy."
 if ! gh auth status >/dev/null 2>&1; then
   say "gh CLI není přihlášené, spouštím gh auth login…"
   gh auth login
